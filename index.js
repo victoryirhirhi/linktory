@@ -1,3 +1,8 @@
+// Force Node.js to prefer IPv4 over IPv6
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
+
+
 import { Telegraf } from "telegraf";
 import express from "express";
 import pkg from "pg";
@@ -148,3 +153,4 @@ app.listen(PORT, async () => {
     console.log(`✅ Webhook set to ${url}/webhook`);
   }
 });
+
