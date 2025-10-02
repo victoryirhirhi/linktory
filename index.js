@@ -2,7 +2,6 @@
 import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 
-
 import { Telegraf } from "telegraf";
 import express from "express";
 import pkg from "pg";
@@ -20,7 +19,7 @@ const pool = new Pool({
 // === Init Bot ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// /start
+// === /start ===
 bot.start(async (ctx) => {
   try {
     const userId = ctx.from.id;
@@ -31,25 +30,62 @@ bot.start(async (ctx) => {
       [userId, username]
     );
 
-    ctx.reply("🚀 Welcome to Linktory!\n\nUse /add <link> to submit a link and earn points.");
+    ctx.reply("🚀 Welcome to Linktory!\n\nUse /add <link> to submit a link and earn points.\nType /help to see all commands.");
   } catch (err) {
     console.error("DB error on /start:", err.message);
     ctx.reply("⚠️ Welcome to Linktory! (Database temporarily unavailable)");
   }
 });
 
-// /add <link>
+// === /help or /commands ===
+bot.command(["help", "commands"], (ctx) => {
+  const message = `
+📜 *Linktory Commands:*
+
+/start - Register and get points  
+/add <link> - Add a new link (or just /add and I will ask for it)  
+/report <link_id> <reason> - Report a suspicious link (will prompt if missing)  
+/check <link> - Check if a link exists (will prompt if missing)  
+/leaderboard - Show top contributors  
+/help or /commands - Show this message
+  `;
+  ctx.reply(message, { parse_mode: "Markdown" });
+});
+
+// === /add <link> ===
 bot.command("add", async (ctx) => {
   try {
     const parts = ctx.message.text.split(" ");
-    const link = parts[1];
+    let link = parts[1];
 
-    if (!link) return ctx.reply("⚠️ Usage: /add <link>");
+    if (!link) {
+      ctx.reply("⚠️ Please send the link you want to add.");
+      const handler = async (replyCtx) => {
+        if (replyCtx.from.id === ctx.from.id) {
+          link = replyCtx.message.text;
+          bot.off("text", handler);
+
+          const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+          if (rows.length > 0) return replyCtx.reply("❌ This link already exists in Linktory.");
+
+          await pool.query(
+            "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
+            [link, ctx.from.id]
+          );
+          await pool.query(
+            "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
+            [ctx.from.id]
+          );
+
+          replyCtx.reply(`✅ Link added: ${link}\n+10 points earned!`);
+        }
+      };
+      bot.on("text", handler);
+      return;
+    }
 
     const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length > 0) {
-      return ctx.reply("❌ This link already exists in Linktory.");
-    }
+    if (rows.length > 0) return ctx.reply("❌ This link already exists in Linktory.");
 
     await pool.query(
       "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
@@ -67,14 +103,41 @@ bot.command("add", async (ctx) => {
   }
 });
 
-// /report <link_id> <reason>
+// === /report <link_id> <reason> ===
 bot.command("report", async (ctx) => {
   try {
     const parts = ctx.message.text.split(" ");
-    const linkId = parts[1];
-    const reason = parts.slice(2).join(" ") || "No reason";
+    let linkId = parts[1];
+    let reason = parts.slice(2).join(" ");
 
-    if (!linkId) return ctx.reply("⚠️ Usage: /report <link_id> <reason>");
+    if (!linkId) {
+      ctx.reply("⚠️ Please send the link ID you want to report.");
+      const handler = async (replyCtx) => {
+        if (replyCtx.from.id === ctx.from.id) {
+          linkId = replyCtx.message.text;
+          bot.off("text", handler);
+
+          ctx.reply("⚠️ Please provide the reason for reporting this link.");
+          const reasonHandler = async (reasonCtx) => {
+            if (reasonCtx.from.id === ctx.from.id) {
+              reason = reasonCtx.message.text;
+              bot.off("text", reasonHandler);
+
+              await pool.query(
+                "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
+                [linkId, ctx.from.id, reason || "No reason"]
+              );
+              reasonCtx.reply(`⚠️ Report submitted for link #${linkId}.\nReason: ${reason}`);
+            }
+          };
+          bot.on("text", reasonHandler);
+        }
+      };
+      bot.on("text", handler);
+      return;
+    }
+
+    if (!reason) reason = "No reason";
 
     await pool.query(
       "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
@@ -88,19 +151,31 @@ bot.command("report", async (ctx) => {
   }
 });
 
-// /check <link>
+// === /check <link> ===
 bot.command("check", async (ctx) => {
   try {
     const parts = ctx.message.text.split(" ");
-    const link = parts[1];
+    let link = parts[1];
 
-    if (!link) return ctx.reply("⚠️ Usage: /check <link>");
+    if (!link) {
+      ctx.reply("⚠️ Please send the link you want to check.");
+      const handler = async (replyCtx) => {
+        if (replyCtx.from.id === ctx.from.id) {
+          link = replyCtx.message.text;
+          bot.off("text", handler);
+
+          const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+          if (rows.length === 0) return replyCtx.reply("❌ No record found. Add it with /add <link>");
+
+          replyCtx.reply(`ℹ️ Link found:\nID: ${rows[0].id}\nStatus: ${rows[0].status}`);
+        }
+      };
+      bot.on("text", handler);
+      return;
+    }
 
     const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-
-    if (rows.length === 0) {
-      return ctx.reply("❌ No record found. Add it with /add <link>");
-    }
+    if (rows.length === 0) return ctx.reply("❌ No record found. Add it with /add <link>");
 
     ctx.reply(`ℹ️ Link found:\nID: ${rows[0].id}\nStatus: ${rows[0].status}`);
   } catch (err) {
@@ -109,7 +184,7 @@ bot.command("check", async (ctx) => {
   }
 });
 
-// /leaderboard
+// === /leaderboard ===
 bot.command("leaderboard", async (ctx) => {
   try {
     const { rows } = await pool.query(
@@ -132,7 +207,7 @@ bot.command("leaderboard", async (ctx) => {
 const app = express();
 app.use(bot.webhookCallback("/webhook"));
 
-// Health checks
+// Health check endpoints
 app.get("/", (req, res) => res.send("✅ Linktory bot is running!"));
 app.get("/health", async (req, res) => {
   try {
@@ -143,14 +218,14 @@ app.get("/health", async (req, res) => {
   }
 });
 
-// === Server Start ===
+// === Start server ===
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
+
   const url = process.env.RENDER_EXTERNAL_URL;
   if (url) {
     await bot.telegram.setWebhook(`${url}/webhook`);
     console.log(`✅ Webhook set to ${url}/webhook`);
   }
 });
-
