@@ -64,29 +64,23 @@ bot.command("add", async (ctx) => {
         if (replyCtx.from.id === ctx.from.id) {
           link = replyCtx.message.text;
           bot.off("text", handler);
-
-          const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-          if (rows.length > 0) return replyCtx.reply("❌ This link already exists in Linktory.");
-
-          await pool.query(
-            "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
-            [link, ctx.from.id]
-          );
-          await pool.query(
-            "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
-            [ctx.from.id]
-          );
-
-          replyCtx.reply(`✅ Link added: ${link}\n+10 points earned!`);
+          await addLink(replyCtx, link);
         }
       };
       bot.on("text", handler);
       return;
     }
 
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length > 0) return ctx.reply("❌ This link already exists in Linktory.");
+    await addLink(ctx, link);
+  } catch (err) {
+    console.error("DB error on /add:", err.message);
+    ctx.reply("⚠️ Could not add link (DB error). Try again later.");
+  }
+});
 
+// Helper function to safely add link
+async function addLink(ctx, link) {
+  try {
     await pool.query(
       "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
       [link, ctx.from.id]
@@ -95,13 +89,16 @@ bot.command("add", async (ctx) => {
       "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
       [ctx.from.id]
     );
-
     ctx.reply(`✅ Link added: ${link}\n+10 points earned!`);
   } catch (err) {
-    console.error("DB error on /add:", err.message);
-    ctx.reply("⚠️ Could not add link (DB error). Try again later.");
+    if (err.code === "23505") { // unique_violation
+      ctx.reply("❌ This link already exists in Linktory.");
+    } else {
+      console.error("DB error in addLink:", err.message);
+      ctx.reply("⚠️ Could not add link (DB error). Try again later.");
+    }
   }
-});
+}
 
 // === /report <link_id> <reason> ===
 bot.command("report", async (ctx) => {
