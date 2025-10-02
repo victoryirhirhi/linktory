@@ -1,7 +1,7 @@
 import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 
-import { Telegraf } from "telegraf";
+import { Telegraf, Markup } from "telegraf";
 import express from "express";
 import pkg from "pg";
 import crypto from "crypto";
@@ -19,13 +19,9 @@ const pool = new Pool({
 // === Init Bot ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// === Helpers ===
+// === Helper: Generate hidden link ID ===
 function generateHiddenId() {
   return crypto.randomBytes(4).toString("hex"); // 8-char hex
-}
-
-function generatePublicId() {
-  return crypto.randomBytes(3).toString("hex"); // 6-char hex
 }
 
 // === /start Command ===
@@ -63,8 +59,14 @@ bot.start(async (ctx) => {
     }
 
     ctx.reply(
-      "🚀 Welcome to Linktory!\n\nUse /add <link> to submit a link and earn points.\n" +
-      "Use /referral to get your referral code.\nUse /help to see all commands."
+      "🚀 Welcome to Linktory!\n\nUse the buttons below to interact quickly:",
+      Markup.inlineKeyboard([
+        [Markup.button.callback("➕ Add Link", "cmd_add")],
+        [Markup.button.callback("🔎 Check Link", "cmd_check")],
+        [Markup.button.callback("🏆 Leaderboard", "cmd_leaderboard")],
+        [Markup.button.callback("💡 Referral Code", "cmd_referral")],
+        [Markup.button.callback("📜 Help", "cmd_help")]
+      ])
     );
   } catch (err) {
     console.error("DB error on /start:", err.message);
@@ -78,21 +80,16 @@ bot.command("add", async (ctx) => {
     const parts = ctx.message.text.split(" ");
     const link = parts[1];
 
-    if (!link) {
-      return ctx.reply("⚠️ Please provide a link. Usage: /add <link>");
-    }
+    if (!link) return ctx.reply("⚠️ Please provide a link. Usage: /add <link>");
 
     const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length > 0) {
-      return ctx.reply("❌ This link already exists in Linktory.");
-    }
+    if (rows.length > 0) return ctx.reply("❌ This link already exists in Linktory.");
 
     const hiddenId = generateHiddenId();
-    const publicId = generatePublicId();
 
     await pool.query(
-      "INSERT INTO links (url, submitted_by, status, hidden_id, public_id) VALUES ($1, $2, 'pending', $3, $4)",
-      [link, ctx.from.id, hiddenId, publicId]
+      "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3)",
+      [link, ctx.from.id, hiddenId]
     );
 
     await pool.query(
@@ -104,6 +101,24 @@ bot.command("add", async (ctx) => {
   } catch (err) {
     console.error("DB error on /add:", err.message);
     ctx.reply("⚠️ Could not add link (DB error). Try again later.");
+  }
+});
+
+// === /check <link> ===
+bot.command("check", async (ctx) => {
+  try {
+    const parts = ctx.message.text.split(" ");
+    const link = parts[1];
+
+    if (!link) return ctx.reply("⚠️ Usage: /check <link>");
+
+    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+    if (rows.length === 0) return ctx.reply("❌ No record found. Add it with /add <link>");
+
+    ctx.reply(`ℹ️ Link found:\nID: ${rows[0].hidden_id}\nStatus: ${rows[0].status}`);
+  } catch (err) {
+    console.error("DB error on /check:", err.message);
+    ctx.reply("⚠️ Could not check link (DB error). Try again later.");
   }
 });
 
@@ -126,31 +141,10 @@ bot.command("report", async (ctx) => {
       [linkId, ctx.from.id, reason]
     );
 
-    ctx.reply(`⚠️ Report submitted for link.`);
+    ctx.reply("⚠️ Report submitted successfully!");
   } catch (err) {
     console.error("DB error on /report:", err.message);
     ctx.reply("⚠️ Could not submit report (DB error). Try again later.");
-  }
-});
-
-// === /check <link> ===
-bot.command("check", async (ctx) => {
-  try {
-    const parts = ctx.message.text.split(" ");
-    const link = parts[1];
-
-    if (!link) return ctx.reply("⚠️ Usage: /check <link>");
-
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-
-    if (rows.length === 0) {
-      return ctx.reply("❌ No record found. Add it with /add <link>");
-    }
-
-    ctx.reply(`ℹ️ Link found:\nID: ${rows[0].hidden_id}\nStatus: ${rows[0].status}`);
-  } catch (err) {
-    console.error("DB error on /check:", err.message);
-    ctx.reply("⚠️ Could not check link (DB error). Try again later.");
   }
 });
 
@@ -161,12 +155,12 @@ bot.command("leaderboard", async (ctx) => {
       "SELECT username, points FROM users ORDER BY points DESC LIMIT 10"
     );
 
-    let message = "🏆 Top Contributors:\n\n";
+    let msg = "🏆 Top Contributors:\n\n";
     rows.forEach((u, i) => {
-      message += `${i + 1}. ${u.username} — ${u.points} pts\n`;
+      msg += `${i + 1}. ${u.username} — ${u.points} pts\n`;
     });
 
-    ctx.reply(message);
+    ctx.reply(msg);
   } catch (err) {
     console.error("DB error on /leaderboard:", err.message);
     ctx.reply("⚠️ Could not load leaderboard (DB error). Try again later.");
@@ -205,6 +199,25 @@ bot.command("help", (ctx) => {
   ctx.reply(helpMsg);
 });
 
+// === Inline button handlers ===
+bot.action("cmd_add", (ctx) => ctx.reply("⚠️ Please type /add <link> to submit a link."));
+bot.action("cmd_check", (ctx) => ctx.reply("⚠️ Please type /check <link> to check a link."));
+bot.action("cmd_leaderboard", async (ctx) => {
+  const { rows } = await pool.query("SELECT username, points FROM users ORDER BY points DESC LIMIT 10");
+  let msg = "🏆 Top Contributors:\n\n";
+  rows.forEach((u, i) => msg += `${i+1}. ${u.username} — ${u.points} pts\n`);
+  ctx.reply(msg);
+});
+bot.action("cmd_referral", async (ctx) => {
+  const { rows } = await pool.query("SELECT referral_code FROM users WHERE telegram_id=$1", [ctx.from.id]);
+  ctx.reply(`💡 Your referral code: ${rows[0].referral_code}`);
+});
+bot.action("cmd_help", (ctx) => {
+  ctx.reply(
+    "📜 Commands List:\n/start [referral_code]\n/add <link>\n/check <link>\n/report <link_id> <reason>\n/leaderboard\n/referral\n/help"
+  );
+});
+
 // === Webhook Setup ===
 const app = express();
 app.use(bot.webhookCallback("/webhook"));
@@ -231,3 +244,4 @@ app.listen(PORT, async () => {
     console.log(`✅ Webhook set to ${url}/webhook`);
   }
 });
+
