@@ -1,7 +1,7 @@
 import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 
-import { Telegraf, Markup } from "telegraf";
+import { Telegraf, Markup, session } from "telegraf";
 import express from "express";
 import pkg from "pg";
 import crypto from "crypto";
@@ -18,10 +18,17 @@ const pool = new Pool({
 
 // === Init Bot ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
+bot.use(session());
 
-// === Helper: Generate hidden link ID ===
+// === Helper Functions ===
 function generateHiddenId() {
   return crypto.randomBytes(4).toString("hex"); // 8-char hex
+}
+
+function extractLink(text) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const matches = text.match(urlRegex);
+  return matches ? matches[0] : null;
 }
 
 // === /start Command ===
@@ -59,10 +66,9 @@ bot.start(async (ctx) => {
       ctx.reply("🎉 You were referred! Referrer earned 20 points!");
     }
 
-    // Show Dashboard button after start
     ctx.reply(
-      "🚀 Welcome to Linktory! Use the Dashboard button to manage links and see stats.",
-      Markup.keyboard([["Dashboard"]]).resize()
+      "🚀 Welcome to Linktory! Use the buttons below to interact with the bot.",
+      Markup.keyboard([["Add Link", "Report Link"], ["Check Link", "Dashboard"]]).resize()
     );
   } catch (err) {
     console.error("DB error on /start:", err.message);
@@ -70,93 +76,32 @@ bot.start(async (ctx) => {
   }
 });
 
-// === /add <link> Command ===
-bot.command("add", async (ctx) => {
-  try {
-    const parts = ctx.message.text.split(" ");
-    const link = parts[1];
-
-    if (!link) {
-      return ctx.reply("⚠️ Please provide a link. Usage: /add <link>");
-    }
-
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length > 0) {
-      return ctx.reply("❌ This link already exists in Linktory.");
-    }
-
-    const hiddenId = generateHiddenId();
-
-    await pool.query(
-      "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3)",
-      [link, ctx.from.id, hiddenId]
-    );
-
-    await pool.query(
-      "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
-      [ctx.from.id]
-    );
-
-    ctx.reply(`✅ Link added successfully!\nYour link ID: ${hiddenId}\n+10 points earned!`);
-  } catch (err) {
-    console.error("DB error on /add:", err.message);
-    ctx.reply("⚠️ Could not add link (DB error). Try again later.");
-  }
+// === Button Actions ===
+bot.hears("Add Link", (ctx) => {
+  ctx.session.awaitingLink = true;
+  ctx.reply("📎 Please send the link you want to add.");
 });
 
-// === /report Command ===
-bot.command("report", async (ctx) => {
-  try {
-    const parts = ctx.message.text.split(" ");
-    const linkInput = parts[1];
-    const reason = parts.slice(2).join(" ") || "No reason";
-
-    if (!linkInput) return ctx.reply("⚠️ Usage: /report <link> <reason>");
-
-    // Check if link exists, add if not
-    let { rows } = await pool.query("SELECT id, hidden_id FROM links WHERE url=$1", [linkInput]);
-    let linkId;
-    let hiddenId;
-    if (rows.length === 0) {
-      hiddenId = generateHiddenId();
-      const res = await pool.query(
-        "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3) RETURNING id, hidden_id",
-        [linkInput, ctx.from.id, hiddenId]
-      );
-      linkId = res.rows[0].id;
-    } else {
-      linkId = rows[0].id;
-      hiddenId = rows[0].hidden_id;
-    }
-
-    await pool.query(
-      "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
-      [linkId, ctx.from.id, reason]
-    );
-
-    ctx.reply(`⚠️ Report submitted for link ID: ${hiddenId}`);
-  } catch (err) {
-    console.error("DB error on /report:", err.message);
-    ctx.reply("⚠️ Could not submit report (DB error). Try again later.");
-  }
+bot.hears("Check Link", (ctx) => {
+  ctx.session.awaitingCheck = true;
+  ctx.reply("🔍 Please send the link you want to check.");
 });
 
-// === Dashboard Button ===
+bot.hears("Report Link", (ctx) => {
+  ctx.session.awaitingReport = true;
+  ctx.reply("⚠️ Please send the link and reason to report (e.g., <link> <reason>).");
+});
+
 bot.hears("Dashboard", async (ctx) => {
-  try {
-    ctx.reply(
-      "📊 Your Dashboard:",
-      Markup.inlineKeyboard([
-        [Markup.button.callback("💰 Points", "DASHBOARD_POINTS")],
-        [Markup.button.callback("🔗 Links Submitted", "DASHBOARD_LINKS")],
-        [Markup.button.callback("👥 Friends Invited", "DASHBOARD_FRIENDS")],
-        [Markup.button.callback("🔗 Referral Link", "DASHBOARD_REFERRAL")]
-      ])
-    );
-  } catch (err) {
-    console.error("DB error on dashboard:", err.message);
-    ctx.reply("⚠️ Could not fetch dashboard.");
-  }
+  ctx.reply(
+    "📊 Your Dashboard:",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("💰 Points", "DASHBOARD_POINTS")],
+      [Markup.button.callback("🔗 Links Submitted", "DASHBOARD_LINKS")],
+      [Markup.button.callback("👥 Friends Invited", "DASHBOARD_FRIENDS")],
+      [Markup.button.callback("🔗 Referral Link", "DASHBOARD_REFERRAL")]
+    ])
+  );
 });
 
 // === Dashboard Callbacks ===
@@ -188,40 +133,106 @@ bot.action("DASHBOARD_REFERRAL", async (ctx) => {
   ctx.reply(`🔗 Your Referral Link: ${referralLink}`);
 });
 
-// === /help Command ===
-bot.command("help", (ctx) => {
-  const helpMsg =
-    "📜 Linktory Commands:\n\n" +
-    "/start [referral_link] - Start the bot with referral link\n" +
-    "/add <link> - Add a link\n" +
-    "/report <link> <reason> - Report a link\n" +
-    "Dashboard - Click to view stats and referral link\n" +
-    "/help - Show this command list";
-  ctx.reply(helpMsg);
-});
+// === Handle text messages (link detection + session) ===
+bot.on("text", async (ctx) => {
+  const text = ctx.message.text.trim();
+  const link = extractLink(text);
 
-// === Webhook Setup ===
-const app = express();
-app.use(bot.webhookCallback("/webhook"));
-
-// Health checks
-app.get("/", (req, res) => res.send("✅ Linktory bot is running!"));
-app.get("/health", async (req, res) => {
   try {
-    const dbCheck = await pool.query("SELECT NOW()");
-    res.json({ status: "ok", db_time: dbCheck.rows[0].now });
+    // Session-based input
+    if (ctx.session.awaitingLink && link) {
+      ctx.session.awaitingLink = false;
+      ctx.reply(
+        `📎 Confirm you want to add this link?\n${link}`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback("✅ Confirm Add", `CONFIRM_ADD|${link}`)],
+          [Markup.button.callback("❌ Cancel", "CANCEL")]
+        ])
+      );
+      return;
+    }
+
+    if (ctx.session.awaitingCheck && link) {
+      ctx.session.awaitingCheck = false;
+      ctx.reply(
+        `🔍 Confirm you want to check this link?\n${link}`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback("✅ Confirm Check", `CONFIRM_CHECK|${link}`)],
+          [Markup.button.callback("❌ Cancel", "CANCEL")]
+        ])
+      );
+      return;
+    }
+
+    if (ctx.session.awaitingReport && link) {
+      ctx.session.awaitingReport = false;
+      const reason = text.replace(link, "").trim() || "No reason";
+      ctx.reply(
+        `⚠️ Confirm you want to report this link?\n${link}\nReason: ${reason}`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback(`✅ Confirm Report|${link}|${reason}`, `CONFIRM_REPORT|${link}|${reason}`)],
+          [Markup.button.callback("❌ Cancel", "CANCEL")]
+        ])
+      );
+      return;
+    }
+
+    // Auto-detect link
+    if (link) {
+      ctx.reply(
+        `🔎 Detected a link: ${link}\nWhat would you like to do?`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback("Add Link", `AUTO_ADD|${link}`)],
+          [Markup.button.callback("Check Link", `AUTO_CHECK|${link}`)],
+          [Markup.button.callback("Report Link", `AUTO_REPORT|${link}`)]
+        ])
+      );
+    }
   } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
+    console.error("DB error on text handling:", err.message);
+    ctx.reply("⚠️ Something went wrong. Try again later.");
+    ctx.session.awaitingLink = ctx.session.awaitingCheck = ctx.session.awaitingReport = false;
   }
 });
 
-// === Server Start ===
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  const url = process.env.RENDER_EXTERNAL_URL;
-  if (url) {
-    await bot.telegram.setWebhook(`${url}/webhook`);
-    console.log(`✅ Webhook set to ${url}/webhook`);
-  }
-});
+// === Confirmation Callbacks ===
+bot.action(/CONFIRM_(ADD|CHECK|REPORT)\|?(.+)?/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const action = ctx.match[1];
+  const data = ctx.match[2];
+
+  try {
+    if (action === "ADD") {
+      const link = data;
+      const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+      if (rows.length > 0) return ctx.reply("❌ This link already exists in Linktory.");
+      const hiddenId = generateHiddenId();
+      await pool.query(
+        "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3)",
+        [link, ctx.from.id, hiddenId]
+      );
+      await pool.query("UPDATE users SET points = points + 10 WHERE telegram_id=$1", [ctx.from.id]);
+      ctx.reply(`✅ Link added successfully!\nYour link ID: ${hiddenId}\n+10 points earned!`);
+    } else if (action === "CHECK") {
+      const link = data;
+      const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+      if (rows.length === 0) return ctx.reply("❌ No record found. Add it with Add Link.");
+      ctx.reply(`ℹ️ Link found:\nID: ${rows[0].hidden_id}\nStatus: ${rows[0].status}`);
+    } else if (action === "REPORT") {
+      const [link, reason] = data.split("|");
+      let { rows } = await pool.query("SELECT id, hidden_id FROM links WHERE url=$1", [link]);
+      let linkId;
+      let hiddenId;
+      if (rows.length === 0) {
+        hiddenId = generateHiddenId();
+        const res = await pool.query(
+          "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3) RETURNING id, hidden_id",
+          [link, ctx.from.id, hiddenId]
+        );
+        linkId = res.rows[0].id;
+      } else {
+        linkId = rows[0].id;
+        hiddenId = rows[0].hidden_id;
+      }
+      await pool.query(
+        "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3
