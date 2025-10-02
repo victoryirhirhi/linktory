@@ -111,7 +111,6 @@ bot.command("report", async (ctx) => {
 
     if (!hiddenId) return ctx.reply("⚠️ Usage: /report <link_id> <reason>");
 
-    // Find internal link ID
     const { rows } = await pool.query("SELECT id FROM links WHERE hidden_id=$1", [hiddenId]);
     if (rows.length === 0) return ctx.reply("❌ Link not found.");
 
