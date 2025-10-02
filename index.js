@@ -1,4 +1,3 @@
-// Force Node.js to prefer IPv4 over IPv6
 import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 
@@ -13,16 +12,16 @@ const { Pool } = pkg;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
-  host: "db.lkdblvkkupbelhsoaeia.supabase.co", // force IPv4
+  host: "db.lkdblvkkupbelhsoaeia.supabase.co",
   port: 5432
 });
 
 // === Init Bot ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// === Helper: Generate short referral code ===
-function generateReferralCode() {
-  return crypto.randomBytes(3).toString("hex"); // 6-char code
+// === Helper: Generate hidden link ID ===
+function generateHiddenId() {
+  return crypto.randomBytes(4).toString("hex"); // 8-char hex
 }
 
 // === /start Command ===
@@ -42,7 +41,7 @@ bot.start(async (ctx) => {
       if (rows.length > 0) referrerId = rows[0].telegram_id;
     }
 
-    const referralCode = generateReferralCode();
+    const referralCode = crypto.randomBytes(3).toString("hex");
 
     await pool.query(
       `INSERT INTO users (telegram_id, username, points, trust_score, referrer_id, referral_code)
@@ -51,7 +50,6 @@ bot.start(async (ctx) => {
       [userId, username, referrerId, referralCode]
     );
 
-    // Reward referrer
     if (referrerId) {
       await pool.query(
         "UPDATE users SET points = points + 20 WHERE telegram_id=$1",
@@ -74,24 +72,22 @@ bot.start(async (ctx) => {
 bot.command("add", async (ctx) => {
   try {
     const parts = ctx.message.text.split(" ");
-    let link = parts[1];
+    const link = parts[1];
 
     if (!link) {
       return ctx.reply("⚠️ Please provide a link. Usage: /add <link>");
     }
 
-    // check duplicate
     const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
     if (rows.length > 0) {
       return ctx.reply("❌ This link already exists in Linktory.");
     }
 
-    // generate hidden id for the link
-    const linkId = crypto.randomBytes(4).toString("hex");
+    const hiddenId = generateHiddenId();
 
     await pool.query(
-      "INSERT INTO links (id, url, submitted_by, status) VALUES ($1, $2, $3, 'pending')",
-      [linkId, link, ctx.from.id]
+      "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3)",
+      [link, ctx.from.id, hiddenId]
     );
 
     await pool.query(
@@ -99,21 +95,27 @@ bot.command("add", async (ctx) => {
       [ctx.from.id]
     );
 
-    ctx.reply(`✅ Link added successfully!\n+10 points earned!`);
+    ctx.reply(`✅ Link added successfully!\nYour link ID: ${hiddenId}\n+10 points earned!`);
   } catch (err) {
     console.error("DB error on /add:", err.message);
     ctx.reply("⚠️ Could not add link (DB error). Try again later.");
   }
 });
 
-// === /report <link_id> <reason> ===
+// === /report <hidden_id> <reason> ===
 bot.command("report", async (ctx) => {
   try {
     const parts = ctx.message.text.split(" ");
-    const linkId = parts[1];
+    const hiddenId = parts[1];
     const reason = parts.slice(2).join(" ") || "No reason";
 
-    if (!linkId) return ctx.reply("⚠️ Usage: /report <link_id> <reason>");
+    if (!hiddenId) return ctx.reply("⚠️ Usage: /report <link_id> <reason>");
+
+    // Find internal link ID
+    const { rows } = await pool.query("SELECT id FROM links WHERE hidden_id=$1", [hiddenId]);
+    if (rows.length === 0) return ctx.reply("❌ Link not found.");
+
+    const linkId = rows[0].id;
 
     await pool.query(
       "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
@@ -141,7 +143,7 @@ bot.command("check", async (ctx) => {
       return ctx.reply("❌ No record found. Add it with /add <link>");
     }
 
-    ctx.reply(`ℹ️ Link found:\nStatus: ${rows[0].status}`);
+    ctx.reply(`ℹ️ Link found:\nID: ${rows[0].hidden_id}\nStatus: ${rows[0].status}`);
   } catch (err) {
     console.error("DB error on /check:", err.message);
     ctx.reply("⚠️ Could not check link (DB error). Try again later.");
