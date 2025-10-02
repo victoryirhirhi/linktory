@@ -19,10 +19,16 @@ const pool = new Pool({
 // === Init Bot ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// === Helper: Generate hidden link ID ===
+// === Helper: Generate IDs ===
 function generateHiddenId() {
-  return crypto.randomBytes(4).toString("hex"); // 8-char hex
+  return crypto.randomBytes(4).toString("hex");
 }
+function generatePublicId() {
+  return crypto.randomBytes(3).toString("hex");
+}
+
+// === Temporary user state ===
+const userState = {}; // { telegramId: { action, linkToReport } }
 
 // === /start Command ===
 bot.start(async (ctx) => {
@@ -58,15 +64,13 @@ bot.start(async (ctx) => {
       ctx.reply("🎉 You were referred! Referrer earned 20 points!");
     }
 
-    ctx.reply(
-      "🚀 Welcome to Linktory!\n\nUse the buttons below to interact quickly:",
-      Markup.inlineKeyboard([
-        [Markup.button.callback("➕ Add Link", "cmd_add")],
-        [Markup.button.callback("🔎 Check Link", "cmd_check")],
-        [Markup.button.callback("🏆 Leaderboard", "cmd_leaderboard")],
-        [Markup.button.callback("💡 Referral Code", "cmd_referral")],
-        [Markup.button.callback("📜 Help", "cmd_help")]
-      ])
+    await ctx.reply(
+      "🚀 Welcome to Linktory! Use the buttons below to interact:",
+      Markup.keyboard([
+        ["Add Link", "Report Link"],
+        ["Check Link", "Leaderboard"],
+        ["Referral", "Help"]
+      ]).resize()
     );
   } catch (err) {
     console.error("DB error on /start:", err.message);
@@ -74,148 +78,150 @@ bot.start(async (ctx) => {
   }
 });
 
-// === /add <link> ===
-bot.command("add", async (ctx) => {
+// === Handle button messages ===
+bot.on("text", async (ctx) => {
+  const text = ctx.message.text;
+  const userId = ctx.from.id;
+
   try {
-    const parts = ctx.message.text.split(" ");
-    const link = parts[1];
+    if (text === "Add Link") {
+      userState[userId] = { action: "add" };
+      return ctx.reply("🔗 Please send the link you want to add:");
+    }
+    if (text === "Report Link") {
+      userState[userId] = { action: "report" };
+      return ctx.reply("⚠️ Please send the link you want to report:");
+    }
+    if (text === "Check Link") {
+      userState[userId] = { action: "check" };
+      return ctx.reply("ℹ️ Please send the link you want to check:");
+    }
+    if (text === "Leaderboard") {
+      const { rows } = await pool.query(
+        "SELECT username, points FROM users ORDER BY points DESC LIMIT 10"
+      );
+      let msg = "🏆 Top Contributors:\n\n";
+      rows.forEach((u, i) => {
+        msg += `${i + 1}. ${u.username} — ${u.points} pts\n`;
+      });
+      return ctx.reply(msg);
+    }
+    if (text === "Referral") {
+      const { rows } = await pool.query(
+        "SELECT referral_code FROM users WHERE telegram_id=$1",
+        [userId]
+      );
+      if (rows.length === 0) return ctx.reply("❌ User not found.");
+      return ctx.reply(`💡 Your referral code: ${rows[0].referral_code}`);
+    }
+    if (text === "Help") {
+      const helpMsg =
+        "📜 Linktory Commands via buttons:\n\n" +
+        "Add Link - Submit a new link\n" +
+        "Report Link - Report a suspicious link\n" +
+        "Check Link - Check if a link exists\n" +
+        "Leaderboard - View top users\n" +
+        "Referral - View your referral code\n" +
+        "Help - Show this menu";
+      return ctx.reply(helpMsg);
+    }
 
-    if (!link) return ctx.reply("⚠️ Please provide a link. Usage: /add <link>");
+    // Handle user input based on state
+    const state = userState[userId];
+    if (!state) return;
 
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length > 0) return ctx.reply("❌ This link already exists in Linktory.");
+    if (state.action === "add") {
+      const link = text.trim();
+      const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+      if (rows.length > 0) {
+        userState[userId] = null;
+        return ctx.reply("❌ This link already exists.");
+      }
+      const hiddenId = generateHiddenId();
+      const publicId = generatePublicId();
+      await pool.query(
+        "INSERT INTO links (url, submitted_by, status, hidden_id, public_id) VALUES ($1, $2, 'pending', $3, $4)",
+        [link, userId, hiddenId, publicId]
+      );
+      await pool.query(
+        "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
+        [userId]
+      );
+      userState[userId] = null;
+      return ctx.reply(`✅ Link added!\nLink ID: ${hiddenId}\n+10 points earned`);
+    }
 
-    const hiddenId = generateHiddenId();
+    if (state.action === "report") {
+      const link = text.trim();
+      let { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+      let linkId;
+      if (rows.length === 0) {
+        const hiddenId = generateHiddenId();
+        const publicId = generatePublicId();
+        const res = await pool.query(
+          "INSERT INTO links (url, submitted_by, status, hidden_id, public_id) VALUES ($1, $2, 'reported', $3, $4) RETURNING id",
+          [link, userId, hiddenId, publicId]
+        );
+        linkId = res.rows[0].id;
+      } else {
+        linkId = rows[0].id;
+        await pool.query("UPDATE links SET status='reported' WHERE id=$1", [linkId]);
+      }
+      await pool.query(
+        "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
+        [linkId, userId, "Reported by user"]
+      );
+      userState[userId] = null;
+      return ctx.reply(`⚠️ Link reported successfully.`);
+    }
 
-    await pool.query(
-      "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3)",
-      [link, ctx.from.id, hiddenId]
-    );
+    if (state.action === "check") {
+      const link = text.trim();
+      const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+      userState[userId] = null;
+      if (rows.length === 0) return ctx.reply("❌ No record found. Add it with Add Link button");
+      
+      // Show inline button for reporting
+      return ctx.reply(
+        `ℹ️ Link found:\nID: ${rows[0].hidden_id}\nStatus: ${rows[0].status}`,
+        Markup.inlineKeyboard([
+          Markup.button.callback("Report this Link", `report_${rows[0].hidden_id}`)
+        ])
+      );
+    }
 
-    await pool.query(
-      "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
-      [ctx.from.id]
-    );
-
-    ctx.reply(`✅ Link added successfully!\nYour link ID: ${hiddenId}\n+10 points earned!`);
   } catch (err) {
-    console.error("DB error on /add:", err.message);
-    ctx.reply("⚠️ Could not add link (DB error). Try again later.");
+    console.error("DB error:", err.message);
+    userState[userId] = null;
+    ctx.reply("⚠️ Database error. Try again later.");
   }
 });
 
-// === /check <link> ===
-bot.command("check", async (ctx) => {
-  try {
-    const parts = ctx.message.text.split(" ");
-    const link = parts[1];
+// === Inline button callback handler ===
+bot.on("callback_query", async (ctx) => {
+  const userId = ctx.from.id;
+  const data = ctx.callbackQuery.data;
 
-    if (!link) return ctx.reply("⚠️ Usage: /check <link>");
+  if (data.startsWith("report_")) {
+    const hiddenId = data.split("_")[1];
+    try {
+      const { rows } = await pool.query("SELECT id, url FROM links WHERE hidden_id=$1", [hiddenId]);
+      if (rows.length === 0) return ctx.answerCbQuery("❌ Link not found.");
 
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length === 0) return ctx.reply("❌ No record found. Add it with /add <link>");
+      const linkId = rows[0].id;
+      await pool.query(
+        "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
+        [linkId, userId, "Reported via button"]
+      );
+      await pool.query("UPDATE links SET status='reported' WHERE id=$1", [linkId]);
 
-    ctx.reply(`ℹ️ Link found:\nID: ${rows[0].hidden_id}\nStatus: ${rows[0].status}`);
-  } catch (err) {
-    console.error("DB error on /check:", err.message);
-    ctx.reply("⚠️ Could not check link (DB error). Try again later.");
+      await ctx.editMessageReplyMarkup();
+      return ctx.answerCbQuery("⚠️ Link reported successfully!");
+    } catch (err) {
+      console.error("DB error on callback:", err.message);
+      return ctx.answerCbQuery("⚠️ DB error. Try again later.");
+    }
   }
-});
-
-// === /report <hidden_id> <reason> ===
-bot.command("report", async (ctx) => {
-  try {
-    const parts = ctx.message.text.split(" ");
-    const hiddenId = parts[1];
-    const reason = parts.slice(2).join(" ") || "No reason";
-
-    if (!hiddenId) return ctx.reply("⚠️ Usage: /report <link_id> <reason>");
-
-    const { rows } = await pool.query("SELECT id FROM links WHERE hidden_id=$1", [hiddenId]);
-    if (rows.length === 0) return ctx.reply("❌ Link not found.");
-
-    const linkId = rows[0].id;
-
-    await pool.query(
-      "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
-      [linkId, ctx.from.id, reason]
-    );
-
-    ctx.reply("⚠️ Report submitted successfully!");
-  } catch (err) {
-    console.error("DB error on /report:", err.message);
-    ctx.reply("⚠️ Could not submit report (DB error). Try again later.");
-  }
-});
-
-// === /leaderboard ===
-bot.command("leaderboard", async (ctx) => {
-  try {
-    const { rows } = await pool.query(
-      "SELECT username, points FROM users ORDER BY points DESC LIMIT 10"
-    );
-
-    let msg = "🏆 Top Contributors:\n\n";
-    rows.forEach((u, i) => {
-      msg += `${i + 1}. ${u.username} — ${u.points} pts\n`;
-    });
-
-    ctx.reply(msg);
-  } catch (err) {
-    console.error("DB error on /leaderboard:", err.message);
-    ctx.reply("⚠️ Could not load leaderboard (DB error). Try again later.");
-  }
-});
-
-// === /referral ===
-bot.command("referral", async (ctx) => {
-  try {
-    const { rows } = await pool.query(
-      "SELECT referral_code FROM users WHERE telegram_id=$1",
-      [ctx.from.id]
-    );
-
-    if (rows.length === 0) return ctx.reply("❌ User not found.");
-
-    ctx.reply(`💡 Your referral code: ${rows[0].referral_code}\nShare it to earn bonus points!`);
-  } catch (err) {
-    console.error("DB error on /referral:", err.message);
-    ctx.reply("⚠️ Could not fetch referral code. Try again later.");
-  }
-});
-
-// === /help ===
-bot.command("help", (ctx) => {
-  const helpMsg =
-    "📜 Linktory Commands:\n\n" +
-    "/start [referral_code] - Start the bot or use a referral code\n" +
-    "/add <link> - Add a link to the system\n" +
-    "/check <link> - Check if a link exists\n" +
-    "/report <link_id> <reason> - Report a link\n" +
-    "/leaderboard - View top users\n" +
-    "/referral - View your referral code\n" +
-    "/help - Show this command list";
-
-  ctx.reply(helpMsg);
-});
-
-// === Inline button handlers ===
-bot.action("cmd_add", (ctx) => ctx.reply("⚠️ Please type /add <link> to submit a link."));
-bot.action("cmd_check", (ctx) => ctx.reply("⚠️ Please type /check <link> to check a link."));
-bot.action("cmd_leaderboard", async (ctx) => {
-  const { rows } = await pool.query("SELECT username, points FROM users ORDER BY points DESC LIMIT 10");
-  let msg = "🏆 Top Contributors:\n\n";
-  rows.forEach((u, i) => msg += `${i+1}. ${u.username} — ${u.points} pts\n`);
-  ctx.reply(msg);
-});
-bot.action("cmd_referral", async (ctx) => {
-  const { rows } = await pool.query("SELECT referral_code FROM users WHERE telegram_id=$1", [ctx.from.id]);
-  ctx.reply(`💡 Your referral code: ${rows[0].referral_code}`);
-});
-bot.action("cmd_help", (ctx) => {
-  ctx.reply(
-    "📜 Commands List:\n/start [referral_code]\n/add <link>\n/check <link>\n/report <link_id> <reason>\n/leaderboard\n/referral\n/help"
-  );
 });
 
 // === Webhook Setup ===
@@ -244,4 +250,3 @@ app.listen(PORT, async () => {
     console.log(`✅ Webhook set to ${url}/webhook`);
   }
 });
-
