@@ -19,9 +19,13 @@ const pool = new Pool({
 // === Init Bot ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// === Helper: Generate hidden link ID ===
+// === Helpers ===
 function generateHiddenId() {
   return crypto.randomBytes(4).toString("hex"); // 8-char hex
+}
+
+function generatePublicId() {
+  return crypto.randomBytes(3).toString("hex"); // 6-char hex
 }
 
 // === /start Command ===
@@ -84,10 +88,11 @@ bot.command("add", async (ctx) => {
     }
 
     const hiddenId = generateHiddenId();
+    const publicId = generatePublicId();
 
     await pool.query(
-      "INSERT INTO links (url, submitted_by, status, hidden_id) VALUES ($1, $2, 'pending', $3)",
-      [link, ctx.from.id, hiddenId]
+      "INSERT INTO links (url, submitted_by, status, hidden_id, public_id) VALUES ($1, $2, 'pending', $3, $4)",
+      [link, ctx.from.id, hiddenId, publicId]
     );
 
     await pool.query(
