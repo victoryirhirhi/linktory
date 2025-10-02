@@ -5,6 +5,7 @@ dns.setDefaultResultOrder("ipv4first");
 import { Telegraf } from "telegraf";
 import express from "express";
 import pkg from "pg";
+import crypto from "crypto";
 
 const { Pool } = pkg;
 
@@ -78,18 +79,21 @@ bot.command("add", async (ctx) => {
   }
 });
 
-// Helper function to safely add link
+// Helper function to safely add link with public_id
 async function addLink(ctx, link) {
   try {
+    const publicId = crypto.randomBytes(4).toString("hex"); // 8-char hex ID
+
     await pool.query(
-      "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
-      [link, ctx.from.id]
+      "INSERT INTO links (url, submitted_by, status, public_id) VALUES ($1, $2, 'pending', $3)",
+      [link, ctx.from.id, publicId]
     );
     await pool.query(
       "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
       [ctx.from.id]
     );
-    ctx.reply(`✅ Link added: ${link}\n+10 points earned!`);
+
+    ctx.reply(`✅ Link added: ${link}\nLink ID: ${publicId}\n+10 points earned!`);
   } catch (err) {
     if (err.code === "23505") { // unique_violation
       ctx.reply("❌ This link already exists in Linktory.");
@@ -108,7 +112,7 @@ bot.command("report", async (ctx) => {
     let reason = parts.slice(2).join(" ");
 
     if (!linkId) {
-      ctx.reply("⚠️ Please send the link ID you want to report.");
+      ctx.reply("⚠️ Please send the Link ID you want to report.");
       const handler = async (replyCtx) => {
         if (replyCtx.from.id === ctx.from.id) {
           linkId = replyCtx.message.text;
@@ -121,10 +125,10 @@ bot.command("report", async (ctx) => {
               bot.off("text", reasonHandler);
 
               await pool.query(
-                "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
+                "INSERT INTO reports (link_id, reported_by, reason) VALUES ((SELECT id FROM links WHERE public_id=$1), $2, $3)",
                 [linkId, ctx.from.id, reason || "No reason"]
               );
-              reasonCtx.reply(`⚠️ Report submitted for link #${linkId}.\nReason: ${reason}`);
+              reasonCtx.reply(`⚠️ Report submitted for link ${linkId}.\nReason: ${reason}`);
             }
           };
           bot.on("text", reasonHandler);
@@ -137,11 +141,11 @@ bot.command("report", async (ctx) => {
     if (!reason) reason = "No reason";
 
     await pool.query(
-      "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
+      "INSERT INTO reports (link_id, reported_by, reason) VALUES ((SELECT id FROM links WHERE public_id=$1), $2, $3)",
       [linkId, ctx.from.id, reason]
     );
 
-    ctx.reply(`⚠️ Report submitted for link #${linkId}.\nReason: ${reason}`);
+    ctx.reply(`⚠️ Report submitted for link ${linkId}.\nReason: ${reason}`);
   } catch (err) {
     console.error("DB error on /report:", err.message);
     ctx.reply("⚠️ Could not submit report (DB error). Try again later.");
@@ -161,20 +165,20 @@ bot.command("check", async (ctx) => {
           link = replyCtx.message.text;
           bot.off("text", handler);
 
-          const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+          const { rows } = await pool.query("SELECT * FROM links WHERE url=$1 OR public_id=$1", [link]);
           if (rows.length === 0) return replyCtx.reply("❌ No record found. Add it with /add <link>");
 
-          replyCtx.reply(`ℹ️ Link found:\nID: ${rows[0].id}\nStatus: ${rows[0].status}`);
+          replyCtx.reply(`ℹ️ Link found:\nLink ID: ${rows[0].public_id}\nStatus: ${rows[0].status}`);
         }
       };
       bot.on("text", handler);
       return;
     }
 
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1 OR public_id=$1", [link]);
     if (rows.length === 0) return ctx.reply("❌ No record found. Add it with /add <link>");
 
-    ctx.reply(`ℹ️ Link found:\nID: ${rows[0].id}\nStatus: ${rows[0].status}`);
+    ctx.reply(`ℹ️ Link found:\nLink ID: ${rows[0].public_id}\nStatus: ${rows[0].status}`);
   } catch (err) {
     console.error("DB error on /check:", err.message);
     ctx.reply("⚠️ Could not check link (DB error). Try again later.");
