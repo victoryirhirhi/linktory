@@ -19,7 +19,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // === Helpers ===
 function generateHiddenId() {
-  return crypto.randomBytes(4).toString("hex"); // 8-char hex
+  return crypto.randomBytes(4).toString("hex");
 }
 
 function dashboardKeyboard() {
@@ -35,7 +35,7 @@ function dashboardKeyboard() {
   ]);
 }
 
-// Track user pending actions & last message for cleanup
+// Track user pending actions & last message
 const userPendingAction = new Map();
 const lastUserMessage = new Map();
 
@@ -196,23 +196,6 @@ bot.on("text", async (ctx) => {
       );
       const linkId = insert[0].id;
 
-      // Check if it’s reported and user is premium
-      const { rows: reportRows } = await pool.query(
-        "SELECT reason FROM reports WHERE link_id=$1",
-        [linkId]
-      );
-      if (reportRows.length > 0 && user.is_premium) {
-        await ctx.reply(
-          `⚠️ This link has been reported!\nReason: ${reportRows[0].reason}\nWould you like to confirm its status?`,
-          Markup.inlineKeyboard([
-            [
-              Markup.button.callback("✅ Confirm Legit", `CONFIRM_LEGIT_${linkId}`),
-              Markup.button.callback("🚨 Confirm Scam", `CONFIRM_SCAM_${linkId}`),
-            ],
-          ])
-        );
-      }
-
       await pool.query("UPDATE users SET points=points+10 WHERE telegram_id=$1", [userId]);
       userPendingAction.delete(userId);
       const msg = await ctx.reply(
@@ -231,27 +214,27 @@ bot.on("text", async (ctx) => {
       if (rows.length === 0)
         return ctx.reply("❌ No record found.", dashboardKeyboard());
 
-      const linkId = rows[0].id;
-      const { rows: reportRows } = await pool.query(
-        "SELECT reason FROM reports WHERE link_id=$1",
-        [linkId]
+      const link = rows[0];
+
+      // Get vote counts
+      const legitVotes = await pool.query(
+        "SELECT COALESCE(SUM(weight),0) AS total FROM link_votes WHERE link_id=$1 AND vote_type='legit'",
+        [link.id]
+      );
+      const scamVotes = await pool.query(
+        "SELECT COALESCE(SUM(weight),0) AS total FROM link_votes WHERE link_id=$1 AND vote_type='scam'",
+        [link.id]
       );
 
-      if (reportRows.length > 0 && user.is_premium) {
-        await ctx.reply(
-          `⚠️ This link is reported!\nReason: ${reportRows[0].reason}\n\nConfirm status below:`,
-          Markup.inlineKeyboard([
-            [
-              Markup.button.callback("✅ Confirm Legit", `CONFIRM_LEGIT_${linkId}`),
-              Markup.button.callback("🚨 Confirm Scam", `CONFIRM_SCAM_${linkId}`),
-            ],
-          ])
-        );
-      }
-
       const msg = await ctx.reply(
-        `ℹ️ Found link:\nID: ${rows[0].hidden_id}\nStatus: ${rows[0].status}`,
-        dashboardKeyboard()
+        `ℹ️ Found link:\nID: ${link.hidden_id}\nStatus: ${link.status}\n\n🗳 Votes:\n✅ Legit: ${legitVotes.rows[0].total}\n🚨 Scam: ${scamVotes.rows[0].total}`,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Mark as Legit", `VOTE_LEGIT_${link.id}`),
+            Markup.button.callback("🚨 Mark as Scam", `VOTE_SCAM_${link.id}`),
+          ],
+          [Markup.button.callback("🏠 Back to Menu", "DASH_STATS")],
+        ])
       );
       lastUserMessage.set(ctx.chat.id, msg.message_id);
       return;
@@ -314,21 +297,77 @@ bot.on("text", async (ctx) => {
   }
 });
 
-// === CONFIRMATIONS ===
-bot.action(/CONFIRM_(LEGIT|SCAM)_(\d+)/, async (ctx) => {
+// === VOTING SYSTEM ===
+const ADMIN_ID = process.env.ADMIN_ID || "123456789";
+const SCAM_THRESHOLD = 10;
+
+bot.action(/VOTE_(LEGIT|SCAM)_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
-  const [, type, linkId] = ctx.match;
   const userId = ctx.from.id;
-  const confirmation = type === "LEGIT" ? "legit" : "scam";
+  const voteType = ctx.match[1].toLowerCase();
+  const linkId = parseInt(ctx.match[2]);
 
-  await pool.query(
-    "INSERT INTO confirmations (user_id, link_id, confirmation) VALUES ($1,$2,$3)",
-    [userId, linkId, confirmation]
-  );
+  try {
+    const { rows: userRows } = await pool.query(
+      "SELECT is_premium FROM users WHERE telegram_id=$1",
+      [userId]
+    );
+    const isPremium = userRows.length && userRows[0].is_premium;
+    const weight = isPremium ? 2 : 1;
 
-  await pool.query("UPDATE users SET points=points+5 WHERE telegram_id=$1", [userId]);
+    const existing = await pool.query(
+      "SELECT vote_type FROM link_votes WHERE link_id=$1 AND user_id=$2",
+      [linkId, userId]
+    );
 
-  await ctx.reply(`✅ Confirmation saved! +5 points awarded.`, dashboardKeyboard());
+    if (existing.rows.length > 0 && existing.rows[0].vote_type === voteType)
+      return ctx.reply("⚠️ You already voted this way.");
+
+    if (existing.rows.length > 0) {
+      await pool.query(
+        "UPDATE link_votes SET vote_type=$1, weight=$2 WHERE link_id=$3 AND user_id=$4",
+        [voteType, weight, linkId, userId]
+      );
+    } else {
+      await pool.query(
+        "INSERT INTO link_votes (link_id, user_id, vote_type, weight) VALUES ($1,$2,$3,$4)",
+        [linkId, userId, voteType, weight]
+      );
+    }
+
+    await pool.query("UPDATE users SET points=points+1 WHERE telegram_id=$1", [userId]);
+
+    const legitVotes = await pool.query(
+      "SELECT COALESCE(SUM(weight),0) AS total FROM link_votes WHERE link_id=$1 AND vote_type='legit'",
+      [linkId]
+    );
+    const scamVotes = await pool.query(
+      "SELECT COALESCE(SUM(weight),0) AS total FROM link_votes WHERE link_id=$1 AND vote_type='scam'",
+      [linkId]
+    );
+
+    const legitCount = parseInt(legitVotes.rows[0].total);
+    const scamCount = parseInt(scamVotes.rows[0].total);
+
+    if (scamCount >= SCAM_THRESHOLD) {
+      await pool.query("UPDATE links SET status='under_review' WHERE id=$1", [linkId]);
+      await bot.telegram.sendMessage(
+        ADMIN_ID,
+        `🚨 *ALERT: Link Under Review*\n\nLink ID: ${linkId}\nScam Votes: ${scamCount}\nLegit Votes: ${legitCount}`,
+        { parse_mode: "Markdown" }
+      );
+    }
+
+    await ctx.reply(
+      `🗳 Your vote recorded!\n✅ Legit: ${legitCount}\n🚨 Scam: ${scamCount}\n${
+        isPremium ? "⭐ Premium vote counted double!" : ""
+      }`,
+      dashboardKeyboard()
+    );
+  } catch (err) {
+    console.error("Vote error:", err.message);
+    await ctx.reply("⚠️ Could not record vote.");
+  }
 });
 
 // === Express Setup ===
