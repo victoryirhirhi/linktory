@@ -37,15 +37,24 @@ function dashboardKeyboard() {
 
 // === Trackers ===
 const userPendingAction = new Map();
-const lastBotMessage = new Map(); // to track last bot message per user
+const lastBotMessage = new Map();
 
+// === Message Cleanup Helper ===
 async function cleanAndReply(ctx, text, keyboard) {
   const userId = ctx.from.id;
   try {
+    // delete user's own input
+    if (ctx.message?.message_id) {
+      await ctx.deleteMessage(ctx.message.message_id).catch(() => {});
+    }
+
+    // delete previous bot message
     const lastMsgId = lastBotMessage.get(userId);
     if (lastMsgId) {
       await ctx.deleteMessage(lastMsgId).catch(() => {});
     }
+
+    // send new message
     const msg = await ctx.reply(text, keyboard);
     lastBotMessage.set(userId, msg.message_id);
   } catch (err) {
