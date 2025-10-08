@@ -4,9 +4,8 @@ export default function addCommand(bot, pool) {
 
     const userId = ctx.from.id;
 
-    // Create a handler scoped to this user
     const onText = async (ctx2) => {
-      if (ctx2.from.id !== userId) return; // Ignore others
+      if (ctx2.from.id !== userId) return;
 
       const link = ctx2.message.text;
 
@@ -15,25 +14,21 @@ export default function addCommand(bot, pool) {
           link,
           ctx2.from.username || ctx2.from.id,
         ]);
-
         await ctx2.reply(`✅ Link added successfully:\n${link}`);
       } catch (err) {
         console.error(err);
-        await ctx2.reply("⚠️ Error adding link. Maybe it already exists?");
+        await ctx2.reply("⚠️ Error adding link. It may already exist.");
       }
 
-      // Remove this listener AFTER it runs once
       bot.context.textHandlers = bot.context.textHandlers?.filter((h) => h !== onText);
     };
 
-    // Save the handler
     if (!bot.context.textHandlers) bot.context.textHandlers = [];
     bot.context.textHandlers.push(onText);
   });
 
-  // Global listener for text input
   bot.on("text", async (ctx) => {
-    if (!bot.context.textHandlers || bot.context.textHandlers.length === 0) return;
+    if (!bot.context.textHandlers?.length) return;
     for (const handler of bot.context.textHandlers) {
       await handler(ctx);
     }
