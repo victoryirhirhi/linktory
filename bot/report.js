@@ -1,36 +1,36 @@
-// bot/report.js
-import { replaceReply } from "../utils/helpers.js";
-
 export default function reportCommand(bot, pool) {
-  bot.action("ACTION_REPORT", async (ctx) => {
-    await ctx.answerCbQuery();
-    await replaceReply(ctx, "🚨 Paste the *link you want to report*:", {
-      parse_mode: "Markdown",
-    });
+  bot.command("report", async (ctx) => {
+    await ctx.reply("🚨 Please send the link you want to report:");
 
-    bot.once("text", async (ctx2) => {
-      const link = ctx2.message.text.trim();
+    const userId = ctx.from.id;
 
-      const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+    const onText = async (ctx2) => {
+      if (ctx2.from.id !== userId) return;
 
-      let linkId;
-      if (rows.length === 0) {
-        // Auto-add the link and mark as "reported"
-        const inserted = await pool.query(
-          "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'reported') RETURNING id",
-          [link, ctx2.from.id]
-        );
-        linkId = inserted.rows[0].id;
-      } else {
-        linkId = rows[0].id;
+      const link = ctx2.message.text;
+
+      try {
+        await pool.query("INSERT INTO reports (url, reported_by) VALUES ($1, $2)", [
+          link,
+          ctx2.from.username || ctx2.from.id,
+        ]);
+        await ctx2.reply(`🚩 Report submitted for:\n${link}`);
+      } catch (err) {
+        console.error(err);
+        await ctx2.reply("⚠️ Error submitting report. It may already exist.");
       }
 
-      await pool.query(
-        "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
-        [linkId, ctx2.from.id, "User report"]
-      );
+      bot.context.textHandlers = bot.context.textHandlers?.filter((h) => h !== onText);
+    };
 
-      ctx2.reply(`⚠️ Report submitted for link #${linkId}`);
-    });
+    if (!bot.context.textHandlers) bot.context.textHandlers = [];
+    bot.context.textHandlers.push(onText);
+  });
+
+  bot.on("text", async (ctx) => {
+    if (!bot.context.textHandlers?.length) return;
+    for (const handler of bot.context.textHandlers) {
+      await handler(ctx);
+    }
   });
 }
