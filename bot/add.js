@@ -1,52 +1,41 @@
-// bot/add.js
-import { Markup } from "telegraf";
+export default function addCommand(bot, pool) {
+  bot.command("add", async (ctx) => {
+    await ctx.reply("📎 Please send the link you want to add:");
 
-export default function setupAddCommand(bot, pool) {
-  bot.action("ACTION_ADD", async (ctx) => {
-    // Delete old message to keep chat clean
-    try {
-      await ctx.deleteMessage();
-    } catch (err) {}
-
-    await ctx.reply("🔗 Please send the link you want to add:");
-
-    // Set up a one-time listener for this user’s next message
     const userId = ctx.from.id;
 
-    const onText = async (msgCtx) => {
-      if (msgCtx.from.id !== userId) return; // ignore others
+    // Create a handler scoped to this user
+    const onText = async (ctx2) => {
+      if (ctx2.from.id !== userId) return; // Ignore others
 
-      const link = msgCtx.message.text.trim();
-      if (!link.startsWith("http")) {
-        await msgCtx.reply("⚠️ Please send a valid URL starting with http or https.");
-        return;
-      }
+      const link = ctx2.message.text;
 
       try {
-        const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-        if (rows.length > 0) {
-          await msgCtx.reply("❌ This link already exists in Linktory.");
-        } else {
-          await pool.query(
-            "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
-            [link, userId]
-          );
-          await pool.query(
-            "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
-            [userId]
-          );
-          await msgCtx.reply(`✅ Link added: ${link}\n+10 points earned!`);
-        }
+        await pool.query("INSERT INTO links (url, added_by) VALUES ($1, $2)", [
+          link,
+          ctx2.from.username || ctx2.from.id,
+        ]);
+
+        await ctx2.reply(`✅ Link added successfully:\n${link}`);
       } catch (err) {
-        console.error("Database error:", err);
-        await msgCtx.reply("❌ Database error, please try again later.");
+        console.error(err);
+        await ctx2.reply("⚠️ Error adding link. Maybe it already exists?");
       }
 
-      // Remove listener after processing
-      bot.off("text", onText);
+      // Remove this listener AFTER it runs once
+      bot.context.textHandlers = bot.context.textHandlers?.filter((h) => h !== onText);
     };
 
-    // Register temporary listener
-    bot.on("text", onText);
+    // Save the handler
+    if (!bot.context.textHandlers) bot.context.textHandlers = [];
+    bot.context.textHandlers.push(onText);
+  });
+
+  // Global listener for text input
+  bot.on("text", async (ctx) => {
+    if (!bot.context.textHandlers || bot.context.textHandlers.length === 0) return;
+    for (const handler of bot.context.textHandlers) {
+      await handler(ctx);
+    }
   });
 }
