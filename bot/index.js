@@ -1,8 +1,10 @@
+// bot/index.js
 import startCommand from "./start.js";
 import addCommand from "./add.js";
 import checkCommand from "./check.js";
 import reportCommand from "./report.js";
 import leaderboardCommand from "./leaderboard.js";
+import dashboardCommand from "./dashboard.js";
 
 export function setupBot(bot, pool) {
   startCommand(bot, pool);
@@ -10,6 +12,9 @@ export function setupBot(bot, pool) {
   checkCommand(bot, pool);
   reportCommand(bot, pool);
   leaderboardCommand(bot, pool);
+  dashboardCommand(bot, pool);
+}
+
 
   // ✅ Add voting system here
   bot.command("vote", async (ctx) => {
@@ -27,3 +32,4 @@ export function setupBot(bot, pool) {
     ctx.reply(`🗳️ Your vote for link #${linkId} has been recorded as ${voteType.toUpperCase()}.`);
   });
 }
+
