@@ -1,17 +1,25 @@
-// bot/leaderboard.js
-export default function leaderboardCommand(bot, pool) {
+export function setupLeaderboard(bot, pool) {
   bot.action("ACTION_LEADERBOARD", async (ctx) => {
     await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => {});
 
-    const { rows } = await pool.query(
-      "SELECT username, points FROM users ORDER BY points DESC LIMIT 10"
-    );
+    const result = await pool.query(`
+      SELECT added_by, COUNT(*) AS total
+      FROM links
+      GROUP BY added_by
+      ORDER BY total DESC
+      LIMIT 10
+    `);
 
-    let message = "🏆 *Top Contributors:*\n\n";
-    rows.forEach((u, i) => {
-      message += `${i + 1}. ${u.username} — ${u.points} pts\n`;
-    });
+    if (result.rowCount === 0) {
+      await ctx.reply("😕 No links added yet!");
+      return;
+    }
 
-    await ctx.reply(message, { parse_mode: "Markdown" });
+    const leaderboard = result.rows
+      .map((r, i) => `${i + 1}. <b>${r.added_by}</b> — ${r.total} links`)
+      .join("\n");
+
+    await ctx.reply(`🏆 Top Contributors:\n\n${leaderboard}`, { parse_mode: "HTML" });
   });
 }
