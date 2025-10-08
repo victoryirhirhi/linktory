@@ -1,20 +1,24 @@
+// bot/check.js
+import { replaceReply } from "../utils/helpers.js";
+
 export default function checkCommand(bot, pool) {
-  bot.command("check", async (ctx) => {
-    const parts = ctx.message.text.split(" ");
-    const link = parts[1];
+  bot.action("ACTION_CHECK", async (ctx) => {
+    await ctx.answerCbQuery();
+    await replaceReply(ctx, "🔍 Send the link you want to *check*:", {
+      parse_mode: "Markdown",
+    });
 
-    if (!link) return ctx.reply("⚠️ Usage: /check <link>");
+    bot.once("text", async (ctx2) => {
+      const link = ctx2.message.text.trim();
+      const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
 
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length === 0) return ctx.reply("❌ No record found. Add it with /add <link>");
+      if (rows.length === 0) {
+        return ctx2.reply("❌ No record found. You can add it using the Add Link button.");
+      }
 
-    const data = rows[0];
-    ctx.reply(
-      `ℹ️ Link Info:\n` +
-      `ID: ${data.id}\n` +
-      `Status: ${data.status}\n` +
-      `✅ Legit votes: ${data.legit_votes}\n` +
-      `🚨 Scam votes: ${data.scam_votes}`
-    );
+      ctx2.reply(`ℹ️ *Link found:*\n\nStatus: ${rows[0].status}`, {
+        parse_mode: "Markdown",
+      });
+    });
   });
 }
