@@ -1,4 +1,20 @@
+// bot/start.js
+import { Markup } from "telegraf";
+import { replaceReply } from "../utils/helpers.js";
+
 export default function startCommand(bot, pool) {
+  const mainMenu = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("➕ Add Link", "ACTION_ADD"),
+      Markup.button.callback("🔍 Check Link", "ACTION_CHECK"),
+    ],
+    [
+      Markup.button.callback("⚠️ Report Link", "ACTION_REPORT"),
+      Markup.button.callback("🏆 Leaderboard", "ACTION_LEADERBOARD"),
+    ],
+  ]);
+
+  // Start
   bot.start(async (ctx) => {
     const userId = ctx.from.id;
     const username = ctx.from.username || "unknown";
@@ -8,14 +24,18 @@ export default function startCommand(bot, pool) {
       [userId, username]
     );
 
-    ctx.reply(
-      "🚀 Welcome to Linktory!\n\n" +
-      "Use these commands:\n" +
-      "🔗 /add <link> — Submit a new link\n" +
-      "🧾 /check <link> — Check link status\n" +
-      "⚠️ /report <id> <reason> — Report a link\n" +
-      "🗳️ /vote <id> legit|scam — Vote on links\n" +
-      "🏆 /leaderboard — View top users"
+    await replaceReply(
+      ctx,
+      "🚀 *Welcome to Linktory!*\n\nTrack, verify, and report links easily.\n\nChoose an option below 👇",
+      { parse_mode: "Markdown", ...mainMenu }
     );
+  });
+
+  // /menu (bring back main menu)
+  bot.command("menu", async (ctx) => {
+    await replaceReply(ctx, "🏠 *Main Menu — Choose an action below:*", {
+      parse_mode: "Markdown",
+      ...mainMenu,
+    });
   });
 }
