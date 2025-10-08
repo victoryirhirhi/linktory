@@ -1,16 +1,36 @@
+// bot/report.js
+import { replaceReply } from "../utils/helpers.js";
+
 export default function reportCommand(bot, pool) {
-  bot.command("report", async (ctx) => {
-    const parts = ctx.message.text.split(" ");
-    const linkId = parts[1];
-    const reason = parts.slice(2).join(" ") || "No reason provided";
+  bot.action("ACTION_REPORT", async (ctx) => {
+    await ctx.answerCbQuery();
+    await replaceReply(ctx, "🚨 Paste the *link you want to report*:", {
+      parse_mode: "Markdown",
+    });
 
-    if (!linkId) return ctx.reply("⚠️ Usage: /report <link_id> <reason>");
+    bot.once("text", async (ctx2) => {
+      const link = ctx2.message.text.trim();
 
-    await pool.query(
-      "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
-      [linkId, ctx.from.id, reason]
-    );
+      const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
 
-    ctx.reply(`⚠️ Report submitted for link #${linkId}\nReason: ${reason}`);
+      let linkId;
+      if (rows.length === 0) {
+        // Auto-add the link and mark as "reported"
+        const inserted = await pool.query(
+          "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'reported') RETURNING id",
+          [link, ctx2.from.id]
+        );
+        linkId = inserted.rows[0].id;
+      } else {
+        linkId = rows[0].id;
+      }
+
+      await pool.query(
+        "INSERT INTO reports (link_id, reported_by, reason) VALUES ($1, $2, $3)",
+        [linkId, ctx2.from.id, "User report"]
+      );
+
+      ctx2.reply(`⚠️ Report submitted for link #${linkId}`);
+    });
   });
 }
