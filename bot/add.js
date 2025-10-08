@@ -1,19 +1,33 @@
+// bot/add.js
+import { replaceReply } from "../utils/helpers.js";
+
 export default function addCommand(bot, pool) {
-  bot.command("add", async (ctx) => {
-    const parts = ctx.message.text.split(" ");
-    const link = parts[1];
+  // Menu button handler
+  bot.action("ACTION_ADD", async (ctx) => {
+    await ctx.answerCbQuery();
+    await replaceReply(ctx, "📎 Please *paste the link* you want to add:", {
+      parse_mode: "Markdown",
+    });
 
-    if (!link) return ctx.reply("⚠️ Usage: /add <link>");
+    bot.once("text", async (ctx2) => {
+      const link = ctx2.message.text.trim();
 
-    const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-    if (rows.length > 0) return ctx.reply("❌ This link already exists in Linktory.");
+      const exists = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+      if (exists.rows.length > 0) {
+        return ctx2.reply("❌ This link already exists in Linktory.");
+      }
 
-    await pool.query(
-      "INSERT INTO links (url, submitted_by, status, legit_votes, scam_votes) VALUES ($1, $2, 'pending', 0, 0)",
-      [link, ctx.from.id]
-    );
-    await pool.query("UPDATE users SET points = points + 10 WHERE telegram_id=$1", [ctx.from.id]);
+      await pool.query(
+        "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
+        [link, ctx2.from.id]
+      );
 
-    ctx.reply(`✅ Link added: ${link}\n+10 points earned!`);
+      await pool.query(
+        "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
+        [ctx2.from.id]
+      );
+
+      ctx2.reply(`✅ Link added successfully:\n${link}\n\n+10 points earned!`);
+    });
   });
 }
