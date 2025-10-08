@@ -1,33 +1,52 @@
 // bot/add.js
-import { replaceReply } from "../utils/helpers.js";
+import { Markup } from "telegraf";
 
-export default function addCommand(bot, pool) {
-  // Menu button handler
+export default function setupAddCommand(bot, pool) {
   bot.action("ACTION_ADD", async (ctx) => {
-    await ctx.answerCbQuery();
-    await replaceReply(ctx, "📎 Please *paste the link* you want to add:", {
-      parse_mode: "Markdown",
-    });
+    // Delete old message to keep chat clean
+    try {
+      await ctx.deleteMessage();
+    } catch (err) {}
 
-    bot.once("text", async (ctx2) => {
-      const link = ctx2.message.text.trim();
+    await ctx.reply("🔗 Please send the link you want to add:");
 
-      const exists = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
-      if (exists.rows.length > 0) {
-        return ctx2.reply("❌ This link already exists in Linktory.");
+    // Set up a one-time listener for this user’s next message
+    const userId = ctx.from.id;
+
+    const onText = async (msgCtx) => {
+      if (msgCtx.from.id !== userId) return; // ignore others
+
+      const link = msgCtx.message.text.trim();
+      if (!link.startsWith("http")) {
+        await msgCtx.reply("⚠️ Please send a valid URL starting with http or https.");
+        return;
       }
 
-      await pool.query(
-        "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
-        [link, ctx2.from.id]
-      );
+      try {
+        const { rows } = await pool.query("SELECT * FROM links WHERE url=$1", [link]);
+        if (rows.length > 0) {
+          await msgCtx.reply("❌ This link already exists in Linktory.");
+        } else {
+          await pool.query(
+            "INSERT INTO links (url, submitted_by, status) VALUES ($1, $2, 'pending')",
+            [link, userId]
+          );
+          await pool.query(
+            "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
+            [userId]
+          );
+          await msgCtx.reply(`✅ Link added: ${link}\n+10 points earned!`);
+        }
+      } catch (err) {
+        console.error("Database error:", err);
+        await msgCtx.reply("❌ Database error, please try again later.");
+      }
 
-      await pool.query(
-        "UPDATE users SET points = points + 10 WHERE telegram_id=$1",
-        [ctx2.from.id]
-      );
+      // Remove listener after processing
+      bot.off("text", onText);
+    };
 
-      ctx2.reply(`✅ Link added successfully:\n${link}\n\n+10 points earned!`);
-    });
+    // Register temporary listener
+    bot.on("text", onText);
   });
 }
