@@ -12,9 +12,9 @@ export default function startCommand(bot, pool) {
       Markup.button.callback("⚠️ Report Link", "ACTION_REPORT"),
       Markup.button.callback("🏆 Leaderboard", "ACTION_LEADERBOARD"),
     ],
+    [Markup.button.callback("👤 My Dashboard", "ACTION_DASHBOARD")],
   ]);
 
-  // Start
   bot.start(async (ctx) => {
     const userId = ctx.from.id;
     const username = ctx.from.username || "unknown";
@@ -31,7 +31,6 @@ export default function startCommand(bot, pool) {
     );
   });
 
-  // /menu (bring back main menu)
   bot.command("menu", async (ctx) => {
     await replaceReply(ctx, "🏠 *Main Menu — Choose an action below:*", {
       parse_mode: "Markdown",
