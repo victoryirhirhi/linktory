@@ -1,36 +1,21 @@
-export default function addCommand(bot, pool) {
-  bot.command("add", async (ctx) => {
-    await ctx.reply("📎 Please send the link you want to add:");
+export function setupAdd(bot, pool) {
+  bot.action("ACTION_ADD", async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.deleteMessage().catch(() => {});
+    const msg = await ctx.reply("🔗 Send the link you want to add:");
 
-    const userId = ctx.from.id;
-
-    const onText = async (ctx2) => {
-      if (ctx2.from.id !== userId) return;
-
-      const link = ctx2.message.text;
-
-      try {
-        await pool.query("INSERT INTO links (url, added_by) VALUES ($1, $2)", [
-          link,
-          ctx2.from.username || ctx2.from.id,
-        ]);
-        await ctx2.reply(`✅ Link added successfully:\n${link}`);
-      } catch (err) {
-        console.error(err);
-        await ctx2.reply("⚠️ Error adding link. It may already exist.");
+    const handler = async (ctx2) => {
+      const url = ctx2.message.text.trim();
+      if (!/^https?:\/\//i.test(url)) {
+        await ctx2.reply("❌ Invalid URL. Please send a valid link starting with http:// or https://");
+        return;
       }
 
-      bot.context.textHandlers = bot.context.textHandlers?.filter((h) => h !== onText);
+      await pool.query("INSERT INTO links (url, added_by) VALUES ($1, $2)", [url, ctx2.from.id]);
+      await ctx2.reply("✅ Link successfully added to Linktory!");
+      bot.off("text", handler);
     };
 
-    if (!bot.context.textHandlers) bot.context.textHandlers = [];
-    bot.context.textHandlers.push(onText);
-  });
-
-  bot.on("text", async (ctx) => {
-    if (!bot.context.textHandlers?.length) return;
-    for (const handler of bot.context.textHandlers) {
-      await handler(ctx);
-    }
+    bot.on("text", handler);
   });
 }
