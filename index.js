@@ -15,7 +15,7 @@ setupBot(bot, pool);
 const app = express();
 app.use(express.json());
 
-// Webhook route
+// Webhook route setup
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_PATH = "/webhook";
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `https://linktory.onrender.com`;
@@ -23,7 +23,7 @@ const webhookUrl = `${RENDER_URL}${WEBHOOK_PATH}`;
 
 app.use(bot.webhookCallback(WEBHOOK_PATH));
 
-// Setup dashboard routes
+// Setup dashboard
 setupDashboard(app, pool);
 
 // Set webhook dynamically
