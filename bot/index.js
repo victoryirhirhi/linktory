@@ -1,13 +1,16 @@
-import { setupStart } from "./start.js";
-import { setupAdd } from "./add.js";
-import { setupCheck } from "./check.js";
-import { setupLeaderboard } from "./leaderboard.js";
-import { setupReport } from "./report.js";
+// bot/index.js
+import startCommand from "./start.js";
+import addCommand from "./add.js";
+import checkCommand from "./check.js";
+import leaderboardCommand from "./leaderboard.js";
+import reportCommand from "./report.js";
 
 export function setupBot(bot, pool) {
-  setupStart(bot);
-  setupAdd(bot, pool);
-  setupCheck(bot, pool);
-  setupLeaderboard(bot, pool);
-  setupReport(bot, pool);
+  startCommand(bot, pool);
+  addCommand(bot, pool);
+  checkCommand(bot, pool);
+  leaderboardCommand(bot, pool);
+  reportCommand(bot, pool);
+
+  console.log("✅ All bot modules initialized successfully");
 }
