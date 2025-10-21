@@ -1,3 +1,4 @@
+// bot/check.js
 export function setupCheck(bot, pool) {
   bot.action("ACTION_CHECK", async (ctx) => {
     await ctx.answerCbQuery();
@@ -9,7 +10,10 @@ export function setupCheck(bot, pool) {
       const result = await pool.query("SELECT * FROM links WHERE url = $1", [url]);
 
       if (result.rowCount > 0) {
-        await ctx2.reply(`✅ This link is already in Linktory.\n\n🧠 Added by: <code>${result.rows[0].added_by}</code>`, { parse_mode: "HTML" });
+        await ctx2.reply(
+          `✅ This link is already in Linktory.\n\n🧠 Added by: <code>${result.rows[0].added_by}</code>`,
+          { parse_mode: "HTML" }
+        );
       } else {
         await ctx2.reply("⚠️ This link has not been added yet.");
       }
