@@ -1,6 +1,5 @@
 // bot/start.js
 import { Markup } from "telegraf";
-import { replaceReply } from "../utils/helpers.js";
 
 export default function startCommand(bot, pool) {
   const mainMenu = Markup.inlineKeyboard([
@@ -15,7 +14,9 @@ export default function startCommand(bot, pool) {
     [Markup.button.callback("👤 My Dashboard", "ACTION_DASHBOARD")],
   ]);
 
+  // Start command
   bot.start(async (ctx) => {
+    await ctx.deleteMessage().catch(() => {}); // Clean screen
     const userId = ctx.from.id;
     const username = ctx.from.username || "unknown";
 
@@ -24,17 +25,41 @@ export default function startCommand(bot, pool) {
       [userId, username]
     );
 
-    await replaceReply(
-      ctx,
+    await ctx.replyWithMarkdown(
       "🚀 *Welcome to Linktory!*\n\nTrack, verify, and report links easily.\n\nChoose an option below 👇",
-      { parse_mode: "Markdown", ...mainMenu }
+      mainMenu
     );
   });
 
+  // Menu command
   bot.command("menu", async (ctx) => {
-    await replaceReply(ctx, "🏠 *Main Menu — Choose an action below:*", {
-      parse_mode: "Markdown",
-      ...mainMenu,
-    });
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.replyWithMarkdown("🏠 *Main Menu — Choose an action below:*", mainMenu);
+  });
+
+  // Button Handlers
+  bot.action("ACTION_ADD", async (ctx) => {
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("📎 Send me the link you want to *add*.");
+  });
+
+  bot.action("ACTION_CHECK", async (ctx) => {
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("🔍 Send the link you want to *check*.");
+  });
+
+  bot.action("ACTION_REPORT", async (ctx) => {
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("⚠️ Send the link you want to *report*.");
+  });
+
+  bot.action("ACTION_LEADERBOARD", async (ctx) => {
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("🏆 Fetching leaderboard...");
+  });
+
+  bot.action("ACTION_DASHBOARD", async (ctx) => {
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("👤 Opening your dashboard...");
   });
 }
