@@ -1,3 +1,4 @@
+// bot/add.js
 export function setupAdd(bot, pool) {
   bot.action("ACTION_ADD", async (ctx) => {
     await ctx.answerCbQuery();
