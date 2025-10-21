@@ -1,3 +1,4 @@
+// bot/report.js
 export function setupReport(bot, pool) {
   bot.action("ACTION_REPORT", async (ctx) => {
     await ctx.answerCbQuery();
