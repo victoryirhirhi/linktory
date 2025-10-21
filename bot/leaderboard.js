@@ -1,3 +1,4 @@
+// bot/leaderboard.js
 export function setupLeaderboard(bot, pool) {
   bot.action("ACTION_LEADERBOARD", async (ctx) => {
     await ctx.answerCbQuery();
