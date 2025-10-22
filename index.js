@@ -1,9 +1,13 @@
-// index.js
 import express from "express";
 import { Telegraf } from "telegraf";
+import path from "path";
+import { fileURLToPath } from "url";
 import { pool } from "./config/db.js";
 import { setupBot } from "./bot/index.js";
 import { setupDashboard } from "./dashboard/index.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 if (!process.env.BOT_TOKEN || !process.env.DATABASE_URL) {
   console.error("❌ Missing BOT_TOKEN or DATABASE_URL");
@@ -14,11 +18,12 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const app = express();
 app.use(express.json());
 
-// Setup bot handlers
+// Setup bot + dashboard
 setupBot(bot, pool);
-
-// Setup dashboard
 setupDashboard(app, pool);
+
+// Serve Telegram Mini App static files
+app.use("/webapp", express.static(path.join(__dirname, "webapp")));
 
 // Webhook configuration
 const PORT = process.env.PORT || 3000;
@@ -38,5 +43,4 @@ app.use(bot.webhookCallback(WEBHOOK_PATH));
 })();
 
 app.get("/", (req, res) => res.send("🚀 Linktory Bot is live via webhook mode!"));
-
 app.listen(PORT, () => console.log(`⚡ Server running on port ${PORT}`));
