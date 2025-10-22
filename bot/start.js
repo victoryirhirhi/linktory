@@ -1,4 +1,3 @@
-// bot/start.js
 import { Markup } from "telegraf";
 
 export function setupStart(bot, pool) {
@@ -20,13 +19,24 @@ export function setupStart(bot, pool) {
     const username = ctx.from.username || "unknown";
 
     await pool.query(
-      "INSERT INTO users (telegram_id, username, points, trust_score) VALUES ($1, $2, 0, 100) ON CONFLICT (telegram_id) DO NOTHING",
+      `INSERT INTO users (telegram_id, username, points, trust_score)
+       VALUES ($1, $2, 0, 100)
+       ON CONFLICT (telegram_id) DO NOTHING`,
       [userId, username]
     );
 
     await ctx.replyWithMarkdown(
       "🚀 *Welcome to Linktory!*\n\nTrack, verify, and report links easily.\n\nChoose an option below 👇",
       mainMenu
+    );
+
+    await ctx.reply(
+      "👇 Tap below to open the Linktory Mini App:",
+      Markup.keyboard([
+        [Markup.button.webApp("📱 Open Linktory App", "https://linktory.onrender.com/webapp")],
+      ])
+        .resize()
+        .persistent()
     );
   });
 
