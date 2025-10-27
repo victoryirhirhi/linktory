@@ -1,40 +1,40 @@
+* { box-sizing: border-box; }
 body {
   margin: 0;
-  font-family: "Poppins", sans-serif;
-  background: #fafafa;
-  color: #333;
-  text-align: center;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: #fbf9fc;
+  color: #111;
 }
-
+#app { display:flex; flex-direction:column; height:100vh; }
 header {
-  background: #ff69b4;
+  background: #ff4d91;
   color: white;
-  padding: 20px;
-  border-radius: 0 0 15px 15px;
+  padding: 18px;
+  text-align:center;
 }
+header h1 { margin:0; font-size:20px; }
+header small { opacity:0.9; }
 
-.menu {
-  display: flex;
-  justify-content: space-around;
-  background: white;
-  padding: 10px;
-  position: fixed;
-  bottom: 0;
-  width: 100%;
-  box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
-}
+main { padding:16px; flex:1; overflow:auto;}
+.statsBar { display:flex; justify-content:space-between; background:#fff; padding:8px; border-radius:10px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,0,0,0.04);}
+.inputRow { display:flex; gap:8px; margin-bottom:12px; }
+.inputRow input { flex:1; padding:10px; border-radius:10px; border:1px solid #eee; }
+.inputRow button { padding:10px 14px; border-radius:10px; background:#ff4d91; color:white; border:none; cursor:pointer; }
 
-.menu button {
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-}
+.card { background:white; padding:12px; border-radius:10px; box-shadow:0 1px 2px rgba(0,0,0,0.04); margin-bottom:10px; }
+.card.small { padding:10px; }
 
-.menu button:hover {
-  color: #ff69b4;
-}
+.list { list-style:none; padding:0; margin:0; }
+.list li { background:white; margin-bottom:8px; padding:10px; border-radius:10px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.02); }
+.status { padding:6px 8px; border-radius:8px; font-weight:600; font-size:13px; }
+.status.legit { background:#e6f9ef; color:#0a7a3a; }
+.status.scam { background:#ffe6e6; color:#b00020; }
+.status.pending { background:#fff3cd; color:#7a5a00; }
 
-#content {
-  padding: 40px 20px 100px;
-}
+.floating { margin: 8px 0 18px; text-align:center; }
+button.primary { background:#ff4d91; color:white; border:none; padding:10px 16px; border-radius:12px; cursor:pointer; }
+
+#tabs { display:flex; border-top:1px solid #eee; }
+#tabs button { flex:1; padding:12px; border:none; background:white; cursor:pointer; }
+#tabs button.active { color:#ff4d91; font-weight:700; }
+.hidden { display:none; }
