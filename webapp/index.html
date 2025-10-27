@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Linktory Mini App</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Linktory — Mini App</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
@@ -11,23 +11,61 @@
   <div id="app">
     <header>
       <h1>Linktory</h1>
-      <p>Verify • Earn • Compete</p>
+      <small id="welcomeSub">Verify • Report • Earn</small>
     </header>
 
-    <main>
-      <div class="menu">
-        <button id="homeBtn">🏠 Home</button>
-        <button id="linksBtn">🔗 Links</button>
-        <button id="earnBtn">💰 Earn</button>
-        <button id="leaderboardBtn">🏆 Leaderboard</button>
-        <button id="profileBtn">👤 Profile</button>
-      </div>
+    <main id="main">
+      <!-- Home / Links merged -->
+      <section id="homeSection" class="tab">
+        <div class="statsBar">
+          <div>Links: <span id="statTotal">0</span></div>
+          <div>Legit: <span id="statLegit">0</span></div>
+          <div>Scam: <span id="statScam">0</span></div>
+        </div>
 
-      <section id="content">
-        <h2>Welcome to Linktory</h2>
-        <p>Your hub for trusted links, reports, and rewards.</p>
+        <div class="inputRow">
+          <input id="linkInput" placeholder="Paste link (https://...)" />
+          <button id="checkBtn">Check</button>
+        </div>
+
+        <div id="checkResult" class="card small hidden"></div>
+
+        <div class="floating">
+          <button id="addBtn" class="primary">➕ Add New Link</button>
+        </div>
+
+        <h3>Recent links</h3>
+        <ul id="recentList" class="list"></ul>
+      </section>
+
+      <!-- Earn -->
+      <section id="earnSection" class="tab hidden">
+        <h2>Earn</h2>
+        <div id="tasksList" class="list"></div>
+      </section>
+
+      <!-- Leaderboard -->
+      <section id="boardSection" class="tab hidden">
+        <h2>Leaderboard</h2>
+        <ul id="leaderList" class="list"></ul>
+      </section>
+
+      <!-- Profile -->
+      <section id="profileSection" class="tab hidden">
+        <h2>Profile</h2>
+        <p>Username: <strong id="profUsername">-</strong></p>
+        <p>Telegram ID: <strong id="profId">-</strong></p>
+        <p>Points: <strong id="profPoints">0</strong></p>
+        <p>Trust score: <strong id="profTrust">0</strong></p>
       </section>
     </main>
+
+    <nav id="tabs">
+      <button data-tab="home" class="active">🏠 Home</button>
+      <button data-tab="earn">💰 Earn</button>
+      <button data-tab="board">🏆 Leaderboard</button>
+      <button data-tab="profile">👤 Profile</button>
+    </nav>
   </div>
 
   <script src="app.js"></script>
