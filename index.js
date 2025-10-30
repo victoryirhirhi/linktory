@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { pool } from "./config/db.js";
 import { setupBot } from "./bot/index.js";
 import { setupDashboard } from "./dashboard/index.js";
+import apiRoutes from "./routes/api.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,10 +23,13 @@ app.use(express.json());
 setupBot(bot, pool);
 setupDashboard(app, pool);
 
-// Serve Telegram Mini App static files
+// ✅ API routes connected for mini app
+app.use("/api", apiRoutes);
+
+// ✅ Serve static Telegram Mini App files
 app.use("/webapp", express.static(path.join(__dirname, "webapp")));
 
-// Webhook configuration
+// Webhook config
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_PATH = "/webhook";
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || "https://linktory.onrender.com";
@@ -42,5 +46,11 @@ app.use(bot.webhookCallback(WEBHOOK_PATH));
   }
 })();
 
-app.get("/", (req, res) => res.send("🚀 Linktory Bot is live via webhook mode!"));
-app.listen(PORT, () => console.log(`⚡ Server running on port ${PORT}`));
+// Root Test Route
+app.get("/", (req, res) =>
+  res.send("🚀 Linktory Bot + Mini App running in Webhook Mode!")
+);
+
+app.listen(PORT, () =>
+  console.log(`⚡ Server running on port ${PORT}`)
+);
