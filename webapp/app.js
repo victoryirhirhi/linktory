@@ -3,9 +3,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const tg = window.Telegram?.WebApp;
   if (tg) tg.expand();
 
-  // DOM
   const tabButtons = document.querySelectorAll("#tabs button");
-  const sections = { home: document.getElementById("homeSection"), earn: document.getElementById("earnSection"), board: document.getElementById("boardSection"), profile: document.getElementById("profileSection") };
+  const sections = {
+    home: document.getElementById("homeSection"),
+    earn: document.getElementById("earnSection"),
+    board: document.getElementById("boardSection"),
+    profile: document.getElementById("profileSection")
+  };
+
   const linkInput = document.getElementById("linkInput");
   const checkBtn = document.getElementById("checkBtn");
   const checkResult = document.getElementById("checkResult");
@@ -19,51 +24,61 @@ document.addEventListener("DOMContentLoaded", () => {
   const profId = document.getElementById("profId");
   const profPoints = document.getElementById("profPoints");
   const profTrust = document.getElementById("profTrust");
+  const tasksList = document.getElementById("tasksList");
 
   let currentUserId = null;
+  const tgUser = tg?.initDataUnsafe?.user;
+  if (tgUser) currentUserId = tgUser.id;
 
-  // Tab switching
+  // Tabs
   tabButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       tabButtons.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       const tab = btn.dataset.tab;
       Object.keys(sections).forEach(k => sections[k].classList.toggle("hidden", k !== tab));
-      if (tab === "home") loadRecent();
+      if (tab === "home") loadAll();
       if (tab === "board") loadLeaderboard();
       if (tab === "profile") loadProfile();
       if (tab === "earn") loadTasks();
     });
   });
 
-  // Get telegram user id
-  const tgUser = tg?.initDataUnsafe?.user;
-  if (tgUser) currentUserId = tgUser.id;
-  else {
-    // fallback: show instructions
-    profUsername.textContent = "Telegram user unknown";
+  // register user automatically on first open
+  async function registerIfNeeded() {
+    if (!currentUserId) return;
+    try {
+      await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegram_id: currentUserId, username: tgUser.username || null })
+      });
+    } catch (e) {
+      console.warn("registerIfNeeded failed", e);
+    }
   }
 
-  // Load user stats & recent links
   async function loadAll() {
-    if (!currentUserId) return;
+    await registerIfNeeded();
     await Promise.all([loadStats(), loadRecent()]);
   }
 
   async function loadStats() {
+    if (!currentUserId) return;
     try {
-      const res = await fetch(`/api/user/${currentUserId}/stats`);
-      if (!res.ok) return;
+      const res = await fetch(`/api/profile/${currentUserId}`);
       const r = await res.json();
-      statTotal.textContent = r.stats.total || 0;
-      statLegit.textContent = r.stats.legit || 0;
-      statScam.textContent = r.stats.scam || 0;
-      profUsername.textContent = r.username || tgUser.username || "User";
-      profId.textContent = currentUserId;
-      profPoints.textContent = r.points || 0;
-      profTrust.textContent = r.trust_score || 0;
+      if (!r.ok) return;
+      const user = r.user;
+      statTotal.textContent = (r.links || []).length || 0;
+      statLegit.textContent = r.links ? r.links.filter(l => l.status === "legit").length : 0;
+      statScam.textContent = r.links ? r.links.filter(l => l.status === "scam").length : 0;
+      profUsername.textContent = user.username || tgUser.username || "User";
+      profId.textContent = user.telegram_id;
+      profPoints.textContent = user.points || 0;
+      profTrust.textContent = user.trust_score || 0;
     } catch (e) {
-      console.error("loadStats error", e);
+      console.error("loadStats err", e);
     }
   }
 
@@ -71,12 +86,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!currentUserId) return;
     recentList.innerHTML = "<li class='card'>Loading...</li>";
     try {
-      const res = await fetch(`/api/user/${currentUserId}/links?limit=20`);
+      const res = await fetch(`/api/profile/${currentUserId}`);
       const r = await res.json();
       recentList.innerHTML = "";
-      (r.links || []).forEach(l => {
+      const links = r.links || [];
+      if (links.length === 0) recentList.innerHTML = "<li class='card'>No recent links</li>";
+      links.forEach(l => {
         const li = document.createElement("li");
         const left = document.createElement("div");
+        left.style.maxWidth = "75%";
         left.innerHTML = `<div style="font-size:14px; word-break:break-word">${escapeHtml(l.url)}</div><small style="color:#666">${new Date(l.created_at).toLocaleString()}</small>`;
         const statusSpan = document.createElement("span");
         statusSpan.className = "status " + (l.status || "pending");
@@ -85,140 +103,163 @@ document.addEventListener("DOMContentLoaded", () => {
         li.appendChild(statusSpan);
         recentList.appendChild(li);
       });
-      if ((r.links || []).length === 0) recentList.innerHTML = "<li class='card'>No recent links</li>";
     } catch (e) {
-      console.error("loadRecent error", e);
+      console.error("loadRecent err", e);
       recentList.innerHTML = "<li class='card'>Error loading</li>";
     }
   }
 
-  // Check link handler
   checkBtn.addEventListener("click", async () => {
     const url = linkInput.value.trim();
-    if (!url) return showTemp("Please paste a link.");
+    if (!url) return showTemp("Paste a link first.");
     checkResult.classList.add("hidden");
     try {
-      const res = await fetch(`/api/link?url=${encodeURIComponent(url)}`);
+      const res = await fetch("/api/checkLink", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
       const r = await res.json();
-      if (!r.ok && !r.status) {
-        // older route returned ok:true + status:... or not_found
+      if (!r.ok && r.exists === undefined) {
+        // older failure
       }
-      // handle cases
-      if (r.status === "not_found") {
+      if (!r.exists) {
         checkResult.className = "card small";
-        checkResult.innerHTML = `<div>🔎 Not found in Linktory</div><div style="margin-top:8px"><button id="confirmAdd" class="primary">Add this link</button></div>`;
+        checkResult.innerHTML = `<div>🔎 Not found in Linktory</div><div style="margin-top:8px"><button id="confirmAdd" class="primary">Add this link (+5 pts)</button></div>`;
         checkResult.classList.remove("hidden");
         document.getElementById("confirmAdd").addEventListener("click", () => handleAdd(url));
       } else {
-        // show detailed card
-        let html = `<div><strong>${escapeHtml(r.link.url)}</strong></div>`;
-        html += `<div>Status: <span class="status ${r.status}">${r.status.toUpperCase()}</span></div>`;
+        const link = r.link;
+        let html = `<div><strong>${escapeHtml(link.url)}</strong></div>`;
+        html += `<div>Status: <span class="status ${link.status}">${link.status.toUpperCase()}</span></div>`;
         if (r.reports && r.reports.length) {
-          html += `<div style="margin-top:8px"><b>Reports:</b><ul>`;
-          r.reports.forEach(rep => html += `<li>${escapeHtml(rep.reason || "No reason")}</li>`);
-          html += `</ul></div>`;
+          html += `<div style="margin-top:8px"><b>Reports:</b><ul>${r.reports.map(rep => `<li>${escapeHtml(rep.reason || "No reason")}</li>`).join("")}</ul></div>`;
         }
         checkResult.className = "card small";
         checkResult.innerHTML = html;
         checkResult.classList.remove("hidden");
       }
     } catch (e) {
-      console.error("check link error", e);
-      showTemp("Server error. Try again.");
+      console.error("check failed", e);
+      showTemp("Server error");
     }
   });
 
-  // Add button (floating) opens add popup (uses same add handler)
   addBtn.addEventListener("click", () => {
     const url = linkInput.value.trim();
-    if (!url) return showTemp("Paste a link in the input first.");
+    if (!url) return showTemp("Paste a link first.");
     handleAdd(url);
   });
 
-  // Actual add flow
   async function handleAdd(url) {
+    if (!currentUserId) return showTemp("Telegram data missing");
     try {
-      const res = await fetch(`/api/link/add`, {
+      const res = await fetch("/api/addLink", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, telegram_id: currentUserId })
       });
       const r = await res.json();
       if (r.ok && r.added) {
-        showTemp("✅ Link added! +10 points.");
+        showTemp("✅ Link added! +5 points.");
         await loadAll();
       } else if (r.ok && !r.added) {
         showTemp("Link already exists.");
       } else {
-        showTemp("Failed to add. Try again.");
+        showTemp("Failed to add.");
       }
     } catch (e) {
-      console.error("add link error", e);
-      showTemp("Server error. Try again.");
+      console.error("add error", e);
+      showTemp("Server error");
     }
   }
 
-  // Leaderboard
+  // report a link flow (UI simple prompt)
+  async function handleReport(url) {
+    if (!currentUserId) return showTemp("Telegram data missing");
+    const reason = prompt("Tell us why you're reporting this link:");
+    if (!reason) return;
+    try {
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, reason, telegram_id: currentUserId })
+      });
+      const r = await res.json();
+      if (r.ok) {
+        showTemp("✅ Report submitted. +5 points.");
+        await loadAll();
+      } else {
+        showTemp("Failed to report.");
+      }
+    } catch (e) {
+      console.error("report err", e);
+      showTemp("Server error");
+    }
+  }
+
   async function loadLeaderboard() {
     leaderList.innerHTML = "<li class='card'>Loading...</li>";
     try {
       const res = await fetch("/api/leaderboard");
       const r = await res.json();
       leaderList.innerHTML = "";
-      (r.rows || r).forEach((u, i) => {
+      (r.rows || []).forEach((u, i) => {
         const li = document.createElement("li");
-        li.innerHTML = `<div style="text-align:left"><strong>${escapeHtml(u.username || "Anonymous")}</strong><br/><small>Trust: ${u.trust_score || 0}</small></div><div>${u.points || 0} pts</div>`;
+        li.innerHTML = `<div style="text-align:left"><strong>${escapeHtml(u.username || "Anon")}</strong><br/><small>Trust: ${u.trust_score || 0}</small></div><div>${u.points || 0} pts</div>`;
         leaderList.appendChild(li);
       });
-      if ((r.rows || r).length === 0) leaderList.innerHTML = "<li class='card'>No users yet</li>";
+      if ((r.rows || []).length === 0) leaderList.innerHTML = "<li class='card'>No users yet</li>";
     } catch (e) {
-      console.error("leaderboard error", e);
+      console.error("leader err", e);
       leaderList.innerHTML = "<li class='card'>Error loading</li>";
     }
   }
 
-  // Profile
   async function loadProfile() {
     if (!currentUserId) return;
     try {
-      const res = await fetch(`/api/user/${currentUserId}/stats`);
+      const res = await fetch(`/api/profile/${currentUserId}`);
       const r = await res.json();
-      profUsername.textContent = r.username || tg?.initDataUnsafe?.user?.username || "User";
-      profId.textContent = currentUserId;
-      profPoints.textContent = r.points || 0;
-      profTrust.textContent = r.trust_score || 0;
+      if (!r.ok) return;
+      const user = r.user;
+      profUsername.textContent = user.username || tgUser.username || "User";
+      profId.textContent = user.telegram_id;
+      profPoints.textContent = user.points || 0;
+      profTrust.textContent = user.trust_score || 0;
     } catch (e) {
-      console.error("profile error", e);
+      console.error("profile err", e);
     }
   }
 
-  // Earn (placeholder)
   function loadTasks() {
-    const el = document.getElementById("tasksList");
-    el.innerHTML = "<div class='card'>Complete tasks to earn points (Add link, report suspicious, refer friends)</div>";
+    tasksList.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<b>Tasks</b>
+      <ul>
+        <li>Add a link — +5 pts</li>
+        <li>Report a scam — +5 pts</li>
+        <li>Refer a friend — +10 pts (future)</li>
+      </ul>`;
+    tasksList.appendChild(div);
   }
 
-  // small helper for toasts
-  function showTemp(msg, ms = 2000) {
+  // small toast
+  function showTemp(msg, ms = 2200) {
     const prev = document.getElementById("tempToast");
     if (prev) prev.remove();
     const toast = document.createElement("div");
     toast.id = "tempToast";
     toast.className = "card";
-    toast.style.position = "fixed";
-    toast.style.left = "50%";
-    toast.style.transform = "translateX(-50%)";
-    toast.style.bottom = "70px";
-    toast.style.zIndex = 9999;
-    toast.innerText = msg;
+    toast.textContent = msg;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), ms);
   }
 
-  // simple escape
-  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+  function escapeHtml(s) { return String(s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
 
-  // initial load
+  // initial
   loadAll();
   loadLeaderboard();
 });
