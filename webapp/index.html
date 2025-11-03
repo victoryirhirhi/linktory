@@ -37,10 +37,23 @@
 
         <div id="earnCard" class="card small">
           <h3>Earn</h3>
-          <p>Earn points by adding or reporting links. Check your dashboard for totals.</p>
+          <p>Earn points by completing tasks below. Claim rewards when done.</p>
           <div id="earnStats">
             <div><strong>Points:</strong> <span id="pointsVal">—</span></div>
             <div><strong>Links:</strong> <span id="linksCount">—</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Earn (detailed page) -->
+      <section id="earn" class="page" aria-hidden="true">
+        <div class="card">
+          <h2>Tasks — Earn Points</h2>
+          <ul id="taskList" class="task-list">
+            <!-- Populated by JS -->
+          </ul>
+          <div style="margin-top:12px;color:var(--muted);font-size:13px">
+            Complete tasks to earn points. Some tasks are auto-detected (when used in Telegram webapp).
           </div>
         </div>
       </section>
