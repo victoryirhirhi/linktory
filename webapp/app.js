@@ -19,6 +19,7 @@ const profileData = qs("#profileData");
 const profileLoadBtn = qs("#profileLoad");
 const pointsVal = qs("#pointsVal");
 const linksCount = qs("#linksCount");
+const taskList = qs("#taskList");
 
 // loader helpers
 function showLoader(){ loader.classList.remove("hidden"); loader.setAttribute("aria-hidden","false"); }
@@ -132,19 +133,17 @@ async function handleReport(){
 // ---------- Recent Links (Home) ----------
 async function loadRecentLinks(){
   recentList.textContent = "Loading...";
-  // try /api/recent (preferred) then fallback to leaderboard-based guess
   const tryRecent = await api("/recent").catch(()=>({ok:false}));
   if(tryRecent && tryRecent.ok && Array.isArray(tryRecent.rows)){
     renderRecent(tryRecent.rows);
     return;
   }
-  // fallback: fetch latest links via /leaderboard (not ideal but better than nothing)
-  const board = await api("/leaderboard");
-  if(!board.ok) {
+  // fallback: try to fetch via leaderboard endpoints as a last resort
+  const board = await api("/leaderboard").catch(()=>({ok:false}));
+  if(!board.ok || !board.rows) {
     recentList.textContent = "Failed to load recent links";
     return;
   }
-  // try to map leaderboard responders (fallback)
   recentList.innerHTML = `<div>Recent contributors (fallback):</div><ol>${board.rows.slice(0,10).map(r => `<li>${escapeHtml(r.username || r.telegram_id)} — ${r.points} pts</li>`).join("")}</ol>`;
 }
 
@@ -178,9 +177,59 @@ async function loadProfile(id){
     <div style="margin-top:8px"><strong>Recent links</strong></div>
     <ul>${res.links.map(l => `<li>${escapeHtml(l.url)} — ${escapeHtml(l.status)} • ${l.created_at ? new Date(l.created_at).toLocaleString() : "?"}</li>`).join("")}</ul>
   `;
-  // update Earn panel
   pointsVal.textContent = user.points || 0;
   linksCount.textContent = (res.links || []).length;
+  // update earn task state (optional)
+  updateTasksForUser(user);
+}
+
+// ---------- Earn tasks (client-side tasks + simple claim flow) ----------
+const TASKS = [
+  { id: "t_add_1", title: "Add 1 new link", points: 5, hint: "Add a link from Home" },
+  { id: "t_report_1", title: "Report 1 suspicious link", points: 5, hint: "Use Report from Home" },
+  { id: "t_invite_1", title: "Invite 1 friend", points: 10, hint: "Share referral link" }
+];
+
+function renderTasks() {
+  taskList.innerHTML = "";
+  const saved = JSON.parse(localStorage.getItem("lt_tasks") || "{}");
+  TASKS.forEach(t=>{
+    const done = !!saved[t.id];
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div>
+        <div class="task-title">${escapeHtml(t.title)}</div>
+        <div class="task-meta">${escapeHtml(t.hint)} — ${t.points} pts</div>
+      </div>
+      <div>
+        <button class="btn ${done ? "neutral" : "primary"}" data-task="${t.id}">${done ? "Claimed" : "Claim"}</button>
+      </div>
+    `;
+    taskList.appendChild(li);
+  });
+  // attach handlers
+  taskList.querySelectorAll("button[data-task]").forEach(b=>{
+    b.addEventListener("click", async (ev)=>{
+      const id = b.dataset.task;
+      const saved = JSON.parse(localStorage.getItem("lt_tasks") || "{}");
+      if(saved[id]) { notify("Already claimed", "info"); return; }
+      // For now, local claim: mark and show points (you may call backend endpoint to award points)
+      saved[id] = { claimed_at: Date.now() };
+      localStorage.setItem("lt_tasks", JSON.stringify(saved));
+      b.textContent = "Claimed";
+      b.classList.remove("primary"); b.classList.add("neutral");
+      notify("Task claimed! Points will be added to your account (server sync pending).");
+      // If user has profile loaded, increase displayed points locally
+      const pts = TASKS.find(t=>t.id===id).points;
+      pointsVal.textContent = (parseInt(pointsVal.textContent || "0", 10) + pts);
+    });
+  });
+}
+
+function updateTasksForUser(user){
+  // Simple heuristic: if user.points >= X mark tasks accordingly (this is optional).
+  // We'll just render tasks and let claim be client-side. You can replace with server verification later.
+  renderTasks();
 }
 
 // ---------- Telegram WebApp init ----------
@@ -192,7 +241,7 @@ function tryInitTelegram(){
       if(user){
         userBadge.textContent = user.username ? `@${user.username}` : user.id;
         profileInput.value = user.id;
-        // silently register
+        // silently register (don't wait)
         fetch(apiBase + "/register", {
           method:"POST", headers:{"content-type":"application/json"},
           body: JSON.stringify({ telegram_id: user.id, username: user.username })
@@ -219,17 +268,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // fast open home
   showPage("home");
 
-  // initial loads
-  // ensure loader hides if backend is unreachable
-  loadRecentLinks().catch(()=>{ recentList.textContent = "Failed to load"; });
-  loadLeaderboard().catch(()=>{ leaderboardList.textContent = "Failed to load"; });
-  tryInitTelegram();
+  // initial loads with robust hiding of loader
+  loadRecentLinks().catch(()=>{ recentList.textContent = "Failed to load"; }).finally(()=>{ hideLoader(); });
+  loadLeaderboard().catch(()=>{ leaderboardList.textContent = "Failed to load"; }).finally(()=>{ hideLoader(); });
 
-  // refresh leaderboard every 45s but using setInterval (no debounce misuse)
+  tryInitTelegram();
+  renderTasks();
+
+  // refresh leaderboard every 45s
   setInterval(() => { loadLeaderboard().catch(()=>{}); }, 45000);
 });
 
-// ✅ global crash safety: hide loader if JS fails
+// global safety: hide loader if JS fails
 window.addEventListener("error", () => hideLoader());
 window.addEventListener("unhandledrejection", () => hideLoader());
-
