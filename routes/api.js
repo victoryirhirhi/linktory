@@ -5,6 +5,12 @@ import { randomUUID } from "crypto";
 
 const router = express.Router();
 
+function hideShortCode(linkRow) {
+  // Remove short_code before returning to public clients
+  const { short_code, ...rest } = linkRow;
+  return rest;
+}
+
 /**
  * POST /api/register
  */
@@ -27,128 +33,132 @@ router.post("/register", async (req, res) => {
 
     res.json({ ok: true, user: r.rows[0] });
   } catch (e) {
-    console.error("register error:", e.message);
+    console.error("register error:", e);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
 /**
  * POST /api/checkLink
+ * Body: { url }
+ * Returns exists true/false and link info if exists (short_code hidden)
  */
 router.post("/checkLink", async (req, res) => {
   try {
     const { url } = req.body;
     if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
 
-    const linkRow = await pool.query(
-      "SELECT id, url, status, short_code FROM links WHERE url=$1",
+    const r = await pool.query(
+      "SELECT id, url, status, submitted_by, created_at FROM links WHERE url = $1",
       [url]
     );
 
-    if (linkRow.rowCount === 0) return res.json({ ok: true, exists: false });
+    if (r.rowCount === 0) return res.json({ ok: true, exists: false });
 
-    const link = linkRow.rows[0];
+    const link = r.rows[0];
 
     const reports = (
       await pool.query(
-        "SELECT reason, reported_by, created_at FROM reports WHERE link_id=$1 ORDER BY created_at DESC",
+        "SELECT id, reason, reported_by, created_at FROM reports WHERE link_id=$1 ORDER BY created_at DESC",
         [link.id]
       )
     ).rows;
 
     const confirmations = (
       await pool.query(
-        "SELECT confirmation, user_id, created_at FROM confirmations WHERE link_id=$1 ORDER BY created_at DESC",
+        "SELECT id, user_id, confirmation, created_at FROM confirmations WHERE link_id=$1 ORDER BY created_at DESC",
         [link.id]
       )
     ).rows;
 
+    // hide short_code (we didn't fetch it, but we intentionally omit)
     res.json({ ok: true, exists: true, link, reports, confirmations });
   } catch (e) {
-    console.error("checkLink error:", e.message);
+    console.error("checkLink error:", e);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
 /**
  * POST /api/addLink
+ * Body: { url, telegram_id }
+ * Adds link if not exists. Awards 5 points to submitter.
+ * NOTE: short_code is generated and stored, but NOT returned to user.
  */
 router.post("/addLink", async (req, res) => {
   try {
     const { url, telegram_id } = req.body;
     if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
 
-    const exists = await pool.query(
-      "SELECT id, url, status, short_code FROM links WHERE url=$1",
-      [url]
-    );
-
+    const exists = await pool.query("SELECT id, url, status, created_at FROM links WHERE url=$1", [url]);
     if (exists.rowCount > 0) {
       return res.json({ ok: true, added: false, message: "Already exists", link: exists.rows[0] });
     }
 
-    const shortCode = randomUUID().slice(0, 8);
+    // generate 6-hex style code: use randomUUID and take first 6 hex chars
+    const shortCode = randomUUID().replace(/-/g, "").slice(0, 6);
 
     const insert = await pool.query(
-      "INSERT INTO links (url, status, short_code, submitted_by) VALUES ($1,'pending',$2,$3) RETURNING id, url, status, short_code",
+      `INSERT INTO links (url, status, short_code, submitted_by, created_at)
+       VALUES ($1, 'pending', $2, $3, now())
+       RETURNING id, url, status, created_at`,
       [url, shortCode, telegram_id || null]
     );
 
+    // award points (5)
     if (telegram_id) {
       await pool.query(
-        "INSERT INTO users (telegram_id, points, trust_score) VALUES ($1,0,100) ON CONFLICT (telegram_id) DO NOTHING",
+        "INSERT INTO users (telegram_id, username, points, trust_score) VALUES ($1, NULL, 0, 100) ON CONFLICT (telegram_id) DO NOTHING",
         [telegram_id]
       );
-
       await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
     }
 
-    res.json({ ok: true, added: true, link: insert.rows[0] });
+    const out = insert.rows[0]; // intentionally DOES NOT include short_code
+    res.json({ ok: true, added: true, link: out });
   } catch (e) {
-    console.error("addLink error:", e.message);
+    console.error("addLink error:", e);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
 /**
  * POST /api/report
+ * Body: { url, reason, telegram_id }
+ * Creates report row and link if missing. Awards 5 points to reporter.
  */
 router.post("/report", async (req, res) => {
   try {
     const { url, reason, telegram_id } = req.body;
     if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
 
-    let link = (
-      await pool.query("SELECT id FROM links WHERE url=$1", [url])
-    ).rows[0];
-
-    if (!link) {
-      const shortCode = randomUUID().slice(0, 8);
-      link = (
-        await pool.query(
-          "INSERT INTO links (url, status, short_code, submitted_by) VALUES ($1,'pending',$2,$3) RETURNING id",
-          [url, shortCode, telegram_id || null]
-        )
-      ).rows[0];
+    let linkRow = (await pool.query("SELECT id FROM links WHERE url=$1", [url])).rows[0];
+    if (!linkRow) {
+      const shortCode = randomUUID().replace(/-/g, "").slice(0, 6);
+      const ins = await pool.query(
+        "INSERT INTO links (url, status, short_code, submitted_by, created_at) VALUES ($1,'pending',$2,$3,now()) RETURNING id",
+        [url, shortCode, telegram_id || null]
+      );
+      linkRow = ins.rows[0];
     }
 
     await pool.query(
-      "INSERT INTO reports (link_id, reason, reported_by) VALUES ($1,$2,$3)",
-      [link.id, reason || null, telegram_id || null]
+      "INSERT INTO reports (link_id, reason, reported_by, created_at) VALUES ($1,$2,$3,now())",
+      [linkRow.id, reason || null, telegram_id || null]
     );
 
+    // award reporter points (5)
     if (telegram_id) {
       await pool.query(
-        "INSERT INTO users (telegram_id, points, trust_score) VALUES ($1,0,100) ON CONFLICT (telegram_id) DO NOTHING",
+        "INSERT INTO users (telegram_id, username, points, trust_score) VALUES ($1, NULL, 0, 100) ON CONFLICT (telegram_id) DO NOTHING",
         [telegram_id]
       );
-
       await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
     }
 
     res.json({ ok: true, message: "Report submitted" });
   } catch (e) {
-    console.error("report error:", e.message);
+    console.error("report error:", e);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 });
@@ -158,45 +168,34 @@ router.post("/report", async (req, res) => {
  */
 router.get("/leaderboard", async (req, res) => {
   try {
-    const rows = (
-      await pool.query(
-        "SELECT username, telegram_id, points, trust_score FROM users ORDER BY points DESC LIMIT 20"
-      )
-    ).rows;
-
-    res.json({ ok: true, rows });
+    const r = await pool.query("SELECT username, telegram_id, points, trust_score FROM users ORDER BY points DESC LIMIT 20");
+    res.json({ ok: true, rows: r.rows });
   } catch (e) {
-    console.error("leaderboard error:", e.message);
+    console.error("leaderboard error:", e);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
 /**
  * GET /api/profile/:id
+ * Returns user + their links (short_code hidden in link list)
  */
 router.get("/profile/:id", async (req, res) => {
   try {
     const id = req.params.id;
+    const r = await pool.query("SELECT telegram_id, username, points, trust_score, created_at FROM users WHERE telegram_id=$1", [id]);
+    if (r.rowCount === 0) return res.json({ ok: false, message: "No user" });
 
-    const user = (
-      await pool.query("SELECT username, telegram_id, points, trust_score FROM users WHERE telegram_id=$1", [id])
-    ).rows[0];
+    const links = (await pool.query(
+      "SELECT id, url, status, created_at FROM links WHERE submitted_by=$1 ORDER BY created_at DESC LIMIT 20",
+      [id]
+    )).rows;
 
-    if (!user) return res.json({ ok: false, message: "No user found" });
-
-    const links = (
-      await pool.query(
-        "SELECT id, url, status, short_code FROM links WHERE submitted_by=$1 ORDER BY id DESC LIMIT 20",
-        [id]
-      )
-    ).rows;
-
-    res.json({ ok: true, user, links });
+    res.json({ ok: true, user: r.rows[0], links });
   } catch (e) {
-    console.error("profile error:", e.message);
+    console.error("profile error:", e);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
 export default router;
-
