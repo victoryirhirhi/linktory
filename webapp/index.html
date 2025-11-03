@@ -21,37 +21,26 @@
           <form id="linkForm" onsubmit="return false;">
             <input id="linkInput" type="url" placeholder="Paste a URL (https://...)" autocomplete="off" />
             <div class="row">
-              <button id="checkBtn" type="button" class="btn neutral">🔍 Check</button>
-              <button id="addBtn" type="button" class="btn primary">➕ Add</button>
-              <button id="reportBtn" type="button" class="btn warn">🚨 Report</button>
+              <button id="checkBtn" type="button" class="btn neutral">Check</button>
+              <button id="addBtn" type="button" class="btn primary">Add</button>
+              <button id="reportBtn" type="button" class="btn warn">Report</button>
             </div>
           </form>
 
-          <div id="result" class="result hidden" role="status" aria-live="polite"></div>
+          <div id="result" class="result hidden" role="status"></div>
+        </div>
+
+        <div id="recentCard" class="card small">
+          <h3>Recent Links</h3>
+          <div id="recentList">Loading...</div>
         </div>
 
         <div id="earnCard" class="card small">
           <h3>Earn</h3>
-          <div class="earn-grid">
-            <div><strong>Points</strong><div id="pointsVal">0</div></div>
-            <div><strong>Rank</strong><div id="rankVal">—</div></div>
-            <div><strong>Links</strong><div id="linksCount">0</div></div>
-          </div>
-
-          <div class="progress">
-            <div id="progressFill" class="progress-fill" style="width:0%;"></div>
-          </div>
-          <div id="progressText" class="muted">0 / 50 pts</div>
-
-          <div style="margin-top:10px">
-            <strong>Quests</strong>
-            <ul id="questList"></ul>
-          </div>
-
-          <div style="margin-top:10px">
-            <strong>Referral</strong>
-            <div id="referralBox" class="muted small">—</div>
-            <button id="copyReferral" class="btn neutral small">Copy Referral</button>
+          <p>Earn points by adding or reporting links. Check your dashboard for totals.</p>
+          <div id="earnStats">
+            <div><strong>Points:</strong> <span id="pointsVal">—</span></div>
+            <div><strong>Links:</strong> <span id="linksCount">—</span></div>
           </div>
         </div>
       </section>
@@ -59,11 +48,11 @@
       <!-- Leaderboard -->
       <section id="leaderboard" class="page" aria-hidden="true">
         <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <h2>Leaderboard</h2>
-            <button id="refreshLeaderboard" class="btn neutral small">Refresh</button>
-          </div>
+          <h2>Leaderboard</h2>
           <div id="leaderboardList">Loading...</div>
+          <div style="margin-top:10px">
+            <button id="refreshLeaderboard" class="btn neutral">Refresh</button>
+          </div>
         </div>
       </section>
 
@@ -71,26 +60,25 @@
       <section id="profile" class="page" aria-hidden="true">
         <div class="card">
           <h2>My Profile</h2>
-          <div id="profileBox">Enter your Telegram ID to load profile (or open from Telegram)</div>
+          <div id="profileBox">Enter your Telegram ID to load profile:</div>
           <form id="profileForm" onsubmit="return false;">
-            <input id="profileInput" type="text" placeholder="Telegram ID (e.g. 827943484)" />
-            <div class="row">
-              <button id="profileLoad" type="button" class="btn primary">Load Profile</button>
-            </div>
+            <input id="profileInput" type="text" placeholder="Your Telegram ID (e.g. 827943484)" />
+            <button type="button" id="profileLoad" class="btn primary">Load Profile</button>
           </form>
           <div id="profileData" class="hidden"></div>
         </div>
       </section>
     </main>
 
-    <nav class="bottom-nav" role="navigation">
+    <nav class="bottom-nav" role="navigation" aria-label="Main menu">
       <button class="menu-item active" data-target="home">Home</button>
+      <button class="menu-item" data-target="earn">Earn</button>
       <button class="menu-item" data-target="leaderboard">Leaderboard</button>
       <button class="menu-item" data-target="profile">Profile</button>
     </nav>
 
     <!-- global loading overlay -->
-    <div id="loader" class="overlay hidden" aria-hidden="true"><div class="spinner" role="status" aria-label="Loading"></div></div>
+    <div id="loader" class="overlay hidden" aria-hidden="true"><div class="spinner" role="progressbar"></div></div>
   </div>
 
   <script type="module" src="/webapp/app.js"></script>
