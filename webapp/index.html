@@ -1,69 +1,74 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Linktory — Mini App</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <title>Linktory Mini App</title>
+  <link rel="stylesheet" href="/webapp/style.css" />
 </head>
 <body>
   <div id="app">
-    <header>
+    <header class="topbar">
       <h1>Linktory</h1>
-      <small id="welcomeSub">Verify • Report • Earn</small>
+      <div id="userBadge" class="badge">—</div>
     </header>
 
-    <main>
-      <section id="homeSection" class="tab">
-        <div class="statsBar">
-          <div>Links: <span id="statTotal">0</span></div>
-          <div>Legit: <span id="statLegit">0</span></div>
-          <div>Scam: <span id="statScam">0</span></div>
+    <main class="container">
+      <!-- Home / Links merged -->
+      <section id="home" class="page active">
+        <div class="card">
+          <h2>Find or Add a Link</h2>
+          <form id="linkForm">
+            <input id="linkInput" type="url" placeholder="Paste a URL (https://...)" autocomplete="off" required />
+            <div class="row">
+              <button id="checkBtn" type="button" class="btn neutral">Check</button>
+              <button id="addBtn" type="button" class="btn primary">Add</button>
+              <button id="reportBtn" type="button" class="btn warn">Report</button>
+            </div>
+          </form>
+
+          <div id="result" class="result hidden"></div>
         </div>
 
-        <div class="inputRow">
-          <input id="linkInput" placeholder="Paste link (https://...)" />
-          <button id="checkBtn">Check</button>
+        <div id="earnCard" class="card small">
+          <h3>Earn</h3>
+          <p>Earn points by adding or reporting links. Check your dashboard for totals.</p>
+          <div id="earnStats"></div>
         </div>
+      </section>
 
-        <div id="checkResult" class="card small hidden"></div>
-
-        <div class="floating">
-          <button id="addBtn" class="primary">➕ Add New Link</button>
+      <!-- Leaderboard -->
+      <section id="leaderboard" class="page">
+        <div class="card">
+          <h2>Leaderboard</h2>
+          <div id="leaderboardList">Loading...</div>
         </div>
-
-        <h3>Recent links</h3>
-        <ul id="recentList" class="list"></ul>
       </section>
 
-      <section id="earnSection" class="tab hidden">
-        <h2>Earn</h2>
-        <div id="tasksList" class="list"></div>
-      </section>
-
-      <section id="boardSection" class="tab hidden">
-        <h2>Leaderboard</h2>
-        <ul id="leaderList" class="list"></ul>
-      </section>
-
-      <section id="profileSection" class="tab hidden">
-        <h2>Profile</h2>
-        <p>Username: <strong id="profUsername">-</strong></p>
-        <p>Telegram ID: <strong id="profId">-</strong></p>
-        <p>Points: <strong id="profPoints">0</strong></p>
-        <p>Trust score: <strong id="profTrust">0</strong></p>
+      <!-- Profile -->
+      <section id="profile" class="page">
+        <div class="card">
+          <h2>My Profile</h2>
+          <div id="profileBox">Enter your Telegram ID to load profile:</div>
+          <form id="profileForm">
+            <input id="profileInput" type="text" placeholder="Your Telegram ID (e.g. 827943484)" />
+            <button type="button" id="profileLoad" class="btn primary">Load Profile</button>
+          </form>
+          <div id="profileData" class="hidden"></div>
+        </div>
       </section>
     </main>
 
-    <nav id="tabs">
-      <button data-tab="home" class="active">🏠 Home</button>
-      <button data-tab="earn">💰 Earn</button>
-      <button data-tab="board">🏆 Leaderboard</button>
-      <button data-tab="profile">👤 Profile</button>
+    <nav class="bottom-nav">
+      <button class="menu-item active" data-target="home">Home</button>
+      <button class="menu-item" data-target="leaderboard">Leaderboard</button>
+      <button class="menu-item" data-target="profile">Profile</button>
     </nav>
+
+    <!-- global loading overlay -->
+    <div id="loader" class="overlay hidden"><div class="spinner"></div></div>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="/webapp/app.js"></script>
 </body>
 </html>
