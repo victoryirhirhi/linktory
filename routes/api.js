@@ -1,6 +1,6 @@
 // routes/api.js
 import express from "express";
-import pool from "../config/db.js";
+import { pool } from "../config/db.js";
 import { randomUUID } from "crypto";
 
 const router = express.Router();
@@ -199,3 +199,4 @@ router.get("/profile/:id", async (req, res) => {
 });
 
 export default router;
+
