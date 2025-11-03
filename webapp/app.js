@@ -228,3 +228,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // refresh leaderboard every 45s but using setInterval (no debounce misuse)
   setInterval(() => { loadLeaderboard().catch(()=>{}); }, 45000);
 });
+
+// ✅ global crash safety: hide loader if JS fails
+window.addEventListener("error", () => hideLoader());
+window.addEventListener("unhandledrejection", () => hideLoader());
+
