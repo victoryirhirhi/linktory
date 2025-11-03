@@ -1,6 +1,8 @@
 import { Markup } from "telegraf";
 
 export function setupStart(bot, pool) {
+  const webAppUrl = `${process.env.RENDER_EXTERNAL_URL}/webapp`;
+
   const mainMenu = Markup.inlineKeyboard([
     [
       Markup.button.callback("➕ Add Link", "ACTION_ADD"),
@@ -10,11 +12,16 @@ export function setupStart(bot, pool) {
       Markup.button.callback("⚠️ Report Link", "ACTION_REPORT"),
       Markup.button.callback("🏆 Leaderboard", "ACTION_LEADERBOARD"),
     ],
+    [
+      {
+        text: "🚀 Open Linktory App",
+        web_app: { url: webAppUrl }
+      }
+    ],
     [Markup.button.callback("👤 My Dashboard", "ACTION_DASHBOARD")],
   ]);
 
   bot.start(async (ctx) => {
-    await ctx.deleteMessage().catch(() => {});
     const userId = ctx.from.id;
     const username = ctx.from.username || "unknown";
 
@@ -26,28 +33,17 @@ export function setupStart(bot, pool) {
     );
 
     await ctx.replyWithMarkdown(
-      "🚀 *Welcome to Linktory!*\n\nTrack, verify, and report links easily.\n\nChoose an option below 👇",
-      mainMenu
-    );
-
-    await ctx.reply(
-      "👇 Tap below to open the Linktory Mini App:",
-      Markup.keyboard([
-        [Markup.button.webApp("📱 Open Linktory App", "https://linktory.onrender.com/webapp")],
-      ])
-        .resize()
-        .persistent()
+      "🚀 *Welcome to Linktory!*\n\nTrack ✅ Verify ✅ Report ✅\n\nTap a feature below 👇",
+      { reply_markup: mainMenu.reply_markup }
     );
   });
 
   bot.command("menu", async (ctx) => {
-    await ctx.deleteMessage().catch(() => {});
-    await ctx.replyWithMarkdown("🏠 *Main Menu — Choose an action below:*", mainMenu);
+    await ctx.reply("🏠 Main Menu", { reply_markup: mainMenu.reply_markup });
   });
 
   bot.action("ACTION_DASHBOARD", async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.deleteMessage().catch(() => {});
     await ctx.reply("👤 Opening your dashboard...");
   });
 }
