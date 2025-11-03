@@ -12,3 +12,20 @@ export function setupBot(bot, pool) {
   setupLeaderboard(bot, pool);
   setupReport(bot, pool);
 }
+bot.start(async (ctx) => {
+  const webAppUrl = `${process.env.RENDER_EXTERNAL_URL}/webapp`;
+  
+  await ctx.reply("🚀 Welcome to Linktory!", {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: "Open Linktory App",
+            web_app: { url: webAppUrl }
+          }
+        ]
+      ]
+    }
+  });
+});
+
