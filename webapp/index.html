@@ -14,12 +14,12 @@
     </header>
 
     <main class="container">
-      <!-- Home -->
+      <!-- Home / Links merged -->
       <section id="home" class="page active" aria-hidden="false">
         <div class="card">
           <h2>Find or Add a Link</h2>
           <form id="linkForm" onsubmit="return false;">
-            <input id="linkInput" type="url" placeholder="Paste a URL (https://...)" autocomplete="off" required />
+            <input id="linkInput" type="url" placeholder="Paste a URL (https://...)" autocomplete="off" />
             <div class="row">
               <button id="checkBtn" type="button" class="btn neutral">🔍 Check</button>
               <button id="addBtn" type="button" class="btn primary">➕ Add</button>
@@ -29,44 +29,29 @@
 
           <div id="result" class="result hidden" role="status" aria-live="polite"></div>
         </div>
-      </section>
 
-      <!-- Earn -->
-      <section id="earn" class="page" aria-hidden="true">
-        <div class="card">
-          <h2>Earn & Rewards</h2>
-          <div id="earnStats" class="earn-stats">
-            <div class="stat">
-              <div class="stat-val" id="pointsVal">—</div>
-              <div class="stat-label">Points</div>
-            </div>
-            <div class="stat">
-              <div class="stat-val" id="rankVal">—</div>
-              <div class="stat-label">Rank</div>
-            </div>
-            <div class="stat">
-              <div class="stat-val" id="linksCount">—</div>
-              <div class="stat-label">Links</div>
-            </div>
+        <div id="earnCard" class="card small">
+          <h3>Earn</h3>
+          <div class="earn-grid">
+            <div><strong>Points</strong><div id="pointsVal">0</div></div>
+            <div><strong>Rank</strong><div id="rankVal">—</div></div>
+            <div><strong>Links</strong><div id="linksCount">0</div></div>
           </div>
 
-          <div class="progress-wrapper">
-            <div class="progress-label">Progress to next reward</div>
-            <div class="progress-bar"><div id="progressFill" style="width:0%"></div></div>
-            <div id="progressText" class="progress-text">—</div>
+          <div class="progress">
+            <div id="progressFill" class="progress-fill" style="width:0%;"></div>
+          </div>
+          <div id="progressText" class="muted">0 / 50 pts</div>
+
+          <div style="margin-top:10px">
+            <strong>Quests</strong>
+            <ul id="questList"></ul>
           </div>
 
-          <div class="quests">
-            <h3>Daily Quests</h3>
-            <ul id="questList">
-              <!-- populated by JS -->
-            </ul>
-          </div>
-
-          <div class="referral">
-            <h3>Invite a friend</h3>
-            <div id="referralBox">—</div>
-            <button id="copyReferral" class="btn neutral">Copy referral link</button>
+          <div style="margin-top:10px">
+            <strong>Referral</strong>
+            <div id="referralBox" class="muted small">—</div>
+            <button id="copyReferral" class="btn neutral small">Copy Referral</button>
           </div>
         </div>
       </section>
@@ -74,9 +59,11 @@
       <!-- Leaderboard -->
       <section id="leaderboard" class="page" aria-hidden="true">
         <div class="card">
-          <h2>Leaderboard</h2>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h2>Leaderboard</h2>
+            <button id="refreshLeaderboard" class="btn neutral small">Refresh</button>
+          </div>
           <div id="leaderboardList">Loading...</div>
-          <div style="margin-top:10px"><button id="refreshLeaderboard" class="btn neutral">Refresh</button></div>
         </div>
       </section>
 
@@ -84,25 +71,26 @@
       <section id="profile" class="page" aria-hidden="true">
         <div class="card">
           <h2>My Profile</h2>
-          <div id="profileBox">Load your profile (we detect Telegram inside the app automatically).</div>
+          <div id="profileBox">Enter your Telegram ID to load profile (or open from Telegram)</div>
           <form id="profileForm" onsubmit="return false;">
-            <input id="profileInput" type="text" placeholder="Your Telegram ID (e.g. 827943484)" />
-            <button type="button" id="profileLoad" class="btn primary">Load Profile</button>
+            <input id="profileInput" type="text" placeholder="Telegram ID (e.g. 827943484)" />
+            <div class="row">
+              <button id="profileLoad" type="button" class="btn primary">Load Profile</button>
+            </div>
           </form>
           <div id="profileData" class="hidden"></div>
         </div>
       </section>
     </main>
 
-    <nav class="bottom-nav" role="navigation" aria-label="Main menu">
+    <nav class="bottom-nav" role="navigation">
       <button class="menu-item active" data-target="home">Home</button>
-      <button class="menu-item" data-target="earn">Earn</button>
       <button class="menu-item" data-target="leaderboard">Leaderboard</button>
       <button class="menu-item" data-target="profile">Profile</button>
     </nav>
 
     <!-- global loading overlay -->
-    <div id="loader" class="overlay hidden" aria-hidden="true"><div class="spinner" role="status"></div></div>
+    <div id="loader" class="overlay hidden" aria-hidden="true"><div class="spinner" role="status" aria-label="Loading"></div></div>
   </div>
 
   <script type="module" src="/webapp/app.js"></script>
