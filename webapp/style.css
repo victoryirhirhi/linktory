@@ -39,6 +39,12 @@ input[type="url"], input[type="text"]{width:100%;padding:12px;border-radius:10px
 .spinner{width:40px;height:40px;border-radius:50%;border:4px solid rgba(255,255,255,0.06);border-top-color:var(--accent);animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* task list */
+.task-list{list-style:none;padding:0;margin:0}
+.task-list li{padding:10px;border-radius:10px;background:rgba(255,255,255,0.01);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.task-title{font-weight:700}
+.task-meta{font-size:13px;color:var(--muted);margin-top:6px}
+
 /* small screens padding fix */
 @media (max-width:420px){
   .container{padding:12px}
