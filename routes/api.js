@@ -79,6 +79,24 @@ router.post("/checkLink", async (req, res) => {
   }
 });
 
+// ✅ GET /api/recent - recent added links
+router.get("/recent", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, url, status, created_at
+       FROM links
+       ORDER BY created_at DESC
+       LIMIT 10`
+    );
+
+    return res.json({ ok: true, rows: result.rows });
+  } catch (err) {
+    console.error("recent error:", err);
+    return res.json({ ok: false, error: "Failed to load recent links" });
+  }
+});
+
+
 /**
  * POST /api/addLink
  * Body: { url, telegram_id }
@@ -199,3 +217,4 @@ router.get("/profile/:id", async (req, res) => {
 });
 
 export default router;
+
