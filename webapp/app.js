@@ -1,150 +1,151 @@
 /////////////////////////////////////////////////
-// ✅ webapp/app.js — CLEAN (NO LOADER AT ALL)
+// ✅ webapp/app.js — Telegram Auth + Full Fix
 /////////////////////////////////////////////////
 
-const qs = (sel, root = document) => root.querySelector(sel);
-const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const qs = (s, r = document) => r.querySelector(s);
+const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const apiBase = "/api";
+let telegram_id = null;
+let username = null;
 
-// DOM
-const linkInput = qs("#linkInput");
-const checkBtn = qs("#checkBtn");
-const addBtn = qs("#addBtn");
-const reportBtn = qs("#reportBtn");
-const resultBox = qs("#result");
-const recentList = qs("#recentList");
-const leaderboardList = qs("#leaderboardList");
-const refreshLeaderboardBtn = qs("#refreshLeaderboard");
-const taskList = qs("#taskList");
-const menuButtons = qsa(".menu-item");
+// ✅ Telegram initialization
+function initTelegram() {
+  if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
+    const user = window.Telegram.WebApp.initDataUnsafe.user;
+    telegram_id = user.id;
+    username = user.username || "User";
 
-// ✅ Simple API wrapper
-async function api(path, opts = {}) {
-  try {
-    const res = await fetch(apiBase + path, {
-      headers: { "Content-Type": "application/json" },
-      ...opts
+    qs("#userBadge").textContent = "@" + username;
+
+    api("/register", {
+      method: "POST",
+      body: JSON.stringify({ telegram_id, username })
     });
-    return await res.json().catch(() => ({}));
-  } catch {
-    return { ok: false, error: "Network error" };
+  } else {
+    qs("#userBadge").textContent = "Guest ❌";
   }
 }
 
-// ✅ Messages
-function notify(msg, err = false) {
-  resultBox.textContent = msg;
-  resultBox.classList.remove("hidden");
-  resultBox.style.borderLeft = err ? "4px solid #e33" : "4px solid var(--accent)";
-  setTimeout(() => resultBox.classList.add("hidden"), 4000);
+// ✅ Simple API fetch
+async function api(path, opts = {}) {
+  return fetch(apiBase + path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts
+  })
+    .then(r => r.json().catch(() => ({})))
+    .catch(() => ({ ok: false, error: "Network error" }));
 }
 
-// ✅ Navigation
+// ✅ Notify UI
+function notify(msg, err = false) {
+  const box = qs("#result");
+  box.textContent = msg;
+  box.classList.remove("hidden");
+  box.style.borderLeft = err
+    ? "4px solid #e33"
+    : "4px solid var(--accent)";
+  setTimeout(() => box.classList.add("hidden"), 4000);
+}
+
+// ✅ Page navigation
 function showPage(id) {
   qsa(".page").forEach(p => p.classList.toggle("active", p.id === id));
-  menuButtons.forEach(b => b.classList.toggle("active", b.dataset.target === id));
+  qsa(".menu-item").forEach(b => b.classList.toggle("active", b.dataset.target === id));
 }
 
-// ✅ Home actions
+// ✅ Action Handlers
 async function handleCheck() {
-  const url = linkInput.value.trim();
-  if (!/^https?:\/\//i.test(url)) return notify("Enter valid URL", true);
+  const url = qs("#linkInput").value.trim();
+  if (!url.startsWith("http")) return notify("Enter valid URL", true);
 
   const res = await api("/checkLink", {
     method: "POST",
     body: JSON.stringify({ url })
   });
 
-  notify(res.exists ? "⚠️ Already exists" : "✅ Safe — Add it!");
+  notify(res.exists ? "⚠ Link already exists" : "✅ Safe — add it!");
 }
 
 async function handleAdd() {
-  const url = linkInput.value.trim();
-  if (!/^https?:\/\//i.test(url)) return notify("Enter valid URL", true);
+  const url = qs("#linkInput").value.trim();
+  if (!url.startsWith("http")) return notify("Enter valid URL", true);
+  if (!telegram_id) return notify("Login with Telegram to add links!", true);
 
   const res = await api("/addLink", {
     method: "POST",
-    body: JSON.stringify({ url })
+    body: JSON.stringify({ url, telegram_id })
   });
 
-  notify(res.ok ? "✅ Link Added" : res.error, !res.ok);
+  notify(res.ok ? "✅ Added!" : res.message, !res.ok);
   loadRecentLinks();
   loadLeaderboard();
-  linkInput.value = "";
 }
 
 async function handleReport() {
-  const url = linkInput.value.trim();
-  if (!/^https?:\/\//i.test(url)) return notify("Enter valid URL", true);
+  const url = qs("#linkInput").value.trim();
+  if (!url.startsWith("http")) return notify("Enter valid URL", true);
+  if (!telegram_id) return notify("Login with Telegram to report!", true);
 
-  const reason = prompt("Reason?");
+  const reason = prompt("Why are you reporting?");
   if (!reason) return;
 
   const res = await api("/report", {
     method: "POST",
-    body: JSON.stringify({ url, reason })
+    body: JSON.stringify({ url, reason, telegram_id })
   });
 
-  notify(res.ok ? "⚠️ Report submitted" : res.error, !res.ok);
+  notify(res.ok ? "⚠ Report submitted" : res.message, !res.ok);
   loadLeaderboard();
 }
 
-// ✅ Recent links
+// ✅ Recent Links
 async function loadRecentLinks() {
-  recentList.textContent = "Loading...";
+  const box = qs("#recentList");
+  box.textContent = "Loading...";
+
   const res = await api("/recent");
 
-  if (!res.ok || !res.rows) {
-    recentList.textContent = "Failed";
-    return;
-  }
-
-  recentList.innerHTML = res.rows.length
-    ? res.rows.map(r =>
-        `<li><a href="${r.url}" target="_blank">${r.url}</a></li>`
-      ).join("")
-    : "No links yet";
+  if (!res.ok) return box.textContent = "Failed!";
+  box.innerHTML = res.rows.map(l => `<li><a target="_blank" href="${l.url}">${l.url}</a></li>`).join("") || "No links yet";
 }
 
 // ✅ Leaderboard
 async function loadLeaderboard() {
-  leaderboardList.textContent = "Loading...";
+  const box = qs("#leaderboardList");
+  box.textContent = "Loading...";
+
   const res = await api("/leaderboard");
+  if (!res.ok) return (box.textContent = "Failed");
 
-  if (!res.ok || !res.rows) {
-    leaderboardList.textContent = "No data";
-    return;
-  }
-
-  leaderboardList.innerHTML = res.rows
-    .map(r => `<li>${r.username || "User"} — ${r.points} pts</li>`)
+  box.innerHTML = res.rows
+    .map(u => `<li>${u.username || "User"} — ${u.points} pts</li>`)
     .join("");
 }
 
 // ✅ Tasks
-const TASKS = [
-  { id: "t1", title: "Add a link ✅", points: 5 },
-  { id: "t2", title: "Report a link 🚨", points: 5 },
-  { id: "t3", title: "Invite a friend 🤝", points: 10 }
-];
-
 function loadTasks() {
+  const list = qs("#taskList");
   const saved = JSON.parse(localStorage.getItem("tasks") || "{}");
 
-  taskList.innerHTML = TASKS.map(t => `
-    <li>
-      ${t.title} — ${t.points} pts
-      <button data-id="${t.id}">
-        ${saved[t.id] ? "✅ Done" : "Claim"}
-      </button>
-    </li>
-  `).join("");
+  const tasks = [
+    { id: "t1", title: "Add a link ✅", points: 5 },
+    { id: "t2", title: "Report a link 🚨", points: 5 },
+    { id: "t3", title: "Invite a friend 🤝", points: 10 }
+  ];
 
-  taskList.querySelectorAll("button").forEach(btn => {
+  list.innerHTML = tasks
+    .map(t => `
+      <li>
+        ${t.title} — ${t.points} pts
+        <button data-id="${t.id}">${saved[t.id] ? "✅ Done" : "Claim"}</button>
+      </li>
+    `).join("");
+
+  list.querySelectorAll("button").forEach(btn => {
     btn.onclick = () => {
       saved[btn.dataset.id] = true;
       localStorage.setItem("tasks", JSON.stringify(saved));
-      notify("✅ Task completed!");
+      notify("✅ Task Completed!");
       loadTasks();
     };
   });
@@ -152,11 +153,13 @@ function loadTasks() {
 
 // ✅ Init
 document.addEventListener("DOMContentLoaded", () => {
-  menuButtons.forEach(btn => btn.onclick = () => showPage(btn.dataset.target));
-  checkBtn.onclick = handleCheck;
-  addBtn.onclick = handleAdd;
-  reportBtn.onclick = handleReport;
-  refreshLeaderboardBtn.onclick = loadLeaderboard;
+  initTelegram();
+
+  qsa(".menu-item").forEach(btn => btn.onclick = () => showPage(btn.dataset.target));
+  qs("#checkBtn").onclick = handleCheck;
+  qs("#addBtn").onclick = handleAdd;
+  qs("#reportBtn").onclick = handleReport;
+  qs("#refreshLeaderboard").onclick = loadLeaderboard;
 
   showPage("home");
   loadRecentLinks();
