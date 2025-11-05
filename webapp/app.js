@@ -27,20 +27,48 @@ function safeRun(fn){ try { return fn(); } catch(e) { console.warn("safeRun erro
 function escapeHtml(s){ return (s||"").toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // Loader helpers (no-ops if loader missing)
+// ✅ Safe Loader Controls
 function showLoader(){
-  safeRun(() => {
-    if (!loader) return;
-    loader.classList.remove("hidden");
-    loader.setAttribute("aria-hidden","false");
-  });
+  if (!loader) return;
+  loader.classList.remove("hidden");
+  loader.setAttribute("aria-hidden", "false");
 }
+
 function hideLoader(){
-  safeRun(() => {
-    if (!loader) return;
-    loader.classList.add("hidden");
-    loader.setAttribute("aria-hidden","true");
-  });
+  if (!loader) return;
+  loader.classList.add("hidden");
+  loader.setAttribute("aria-hidden", "true");
 }
+
+// ✅ Universal API wrapper with FORCE STOP fail-safe
+async function api(path, opts = {}, timeoutMs = 15000){
+  showLoader();
+  setButtonsDisabled(true);
+
+  try {
+    // timeout safeguard so loader never spins forever
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    const res = await fetch(apiBase + path, {
+      ...opts,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+    const data = await res.json();
+    return data;
+
+  } catch (err) {
+    console.warn("API FAIL", err);
+    return { ok:false, error:"Request failed or timed out" };
+
+  } finally {
+    hideLoader();
+    setButtonsDisabled(false);
+  }
+}
+
 
 // disable/enable action buttons
 function setButtonsDisabled(state){
@@ -357,3 +385,4 @@ document.addEventListener("DOMContentLoaded", () => {
 // global safety: hide loader if JS throws
 window.addEventListener("error", () => hideLoader());
 window.addEventListener("unhandledrejection", () => hideLoader());
+
