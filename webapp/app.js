@@ -1,388 +1,190 @@
-// webapp/app.js (replaces your previous app.js)
-const qs = (sel, root = document) => root ? root.querySelector(sel) : null;
-const qsa = (sel, root = document) => (root ? Array.from(root.querySelectorAll(sel)) : []);
+// webapp/app.js — CLEAN & FIXED
+
+const qs = (sel, root = document) => root.querySelector(sel);
+const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const apiBase = "/api";
 
-// Safe element refs (may be null if DOM didn't include them)
-const loader = qs("#loader", document);
-const userBadge = qs("#userBadge", document);
-const linkInput = qs("#linkInput", document);
-const checkBtn = qs("#checkBtn", document);
-const addBtn = qs("#addBtn", document);
-const reportBtn = qs("#reportBtn", document);
-const resultBox = qs("#result", document);
-const recentList = qs("#recentList", document);
-const leaderboardList = qs("#leaderboardList", document);
-const refreshLeaderboardBtn = qs("#refreshLeaderboard", document);
-const profileInput = qs("#profileInput", document);
-const profileData = qs("#profileData", document);
-const profileLoadBtn = qs("#profileLoad", document);
-const pointsVal = qs("#pointsVal", document);
-const linksCount = qs("#linksCount", document);
-const taskList = qs("#taskList", document);
-const menuButtons = qsa(".menu-item", document);
+// DOM Elements
+const loader = qs("#loader");
+const userBadge = qs("#userBadge");
+const linkInput = qs("#linkInput");
+const checkBtn = qs("#checkBtn");
+const addBtn = qs("#addBtn");
+const reportBtn = qs("#reportBtn");
+const resultBox = qs("#result");
+const recentList = qs("#recentList");
+const leaderboardList = qs("#leaderboardList");
+const refreshLeaderboardBtn = qs("#refreshLeaderboard");
+const profileInput = qs("#profileInput");
+const profileData = qs("#profileData");
+const profileLoadBtn = qs("#profileLoad");
+const pointsVal = qs("#pointsVal");
+const linksCount = qs("#linksCount");
+const taskList = qs("#taskList");
+const menuButtons = qsa(".menu-item");
 
-// Utilities
-function safeRun(fn){ try { return fn(); } catch(e) { console.warn("safeRun error", e); } }
-function escapeHtml(s){ return (s||"").toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Utility
+const safe = fn => { try { fn(); } catch(e){ console.warn(e) } };
+const escapeHtml = s => (s || "").replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-// Loader helpers (no-ops if loader missing)
-// ✅ Safe Loader Controls
-function showLoader(){
-  if (!loader) return;
-  loader.classList.remove("hidden");
-  loader.setAttribute("aria-hidden", "false");
-}
+// ✅ Loader Control
+function showLoader(){ if(loader){ loader.classList.remove("hidden"); }}
+function hideLoader(){ if(loader){ loader.classList.add("hidden"); }}
 
-function hideLoader(){
-  if (!loader) return;
-  loader.classList.add("hidden");
-  loader.setAttribute("aria-hidden", "true");
-}
-
-// ✅ Universal API wrapper with FORCE STOP fail-safe
-async function api(path, opts = {}, timeoutMs = 15000){
+// ✅ Global API Wrapper (only one!)
+async function api(path, opts = {}, timeoutMs = 10000){
   showLoader();
   setButtonsDisabled(true);
 
-  try {
-    // timeout safeguard so loader never spins forever
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    const res = await fetch(apiBase + path, {
-      ...opts,
-      signal: controller.signal
-    });
-
-    clearTimeout(timeout);
-    const data = await res.json();
-    return data;
-
-  } catch (err) {
-    console.warn("API FAIL", err);
-    return { ok:false, error:"Request failed or timed out" };
-
-  } finally {
-    hideLoader();
-    setButtonsDisabled(false);
-  }
-}
-
-
-// disable/enable action buttons
-function setButtonsDisabled(state){
-  [checkBtn, addBtn, reportBtn, refreshLeaderboardBtn, profileLoadBtn].forEach(b=>{
-    if(!b) return;
-    b.disabled = !!state;
-  });
-}
-
-// small debounce helper
-function debounce(fn, wait=300){
-  let t;
-  return (...a)=>{ clearTimeout(t); t = setTimeout(()=>fn(...a), wait); };
-}
-
-// user-visible notification (auto-hide). Safe even if resultBox is missing.
-function notify(msg, type="info", autoHide=true){
-  safeRun(()=>{
-    if (!resultBox) {
-      // fallback: console
-      console[type === "err" ? "error" : "log"](msg);
-      return;
-    }
-    resultBox.classList.remove("hidden");
-    resultBox.textContent = msg;
-    resultBox.style.borderLeft = (type === "err") ? "4px solid #ff6b6b" : "4px solid var(--accent)";
-    clearTimeout(resultBox._hideT);
-    if (autoHide) {
-      resultBox._hideT = setTimeout(()=>{ resultBox.classList.add("hidden"); }, 6000);
-    }
-  });
-}
-
-// Robust fetch wrapper with timeout + final cleanup
-async function api(path, opts = {}, timeoutMs = 12000){
-  // show loader only if present and request is not a super-frequent background call
-  showLoader();
-  setButtonsDisabled(true);
   try {
     const controller = new AbortController();
     const timer = setTimeout(()=>controller.abort(), timeoutMs);
+
     const res = await fetch(apiBase + path, { signal: controller.signal, ...opts });
+
     clearTimeout(timer);
-    // if non-JSON or server error, try to parse gracefully
-    const text = await res.text().catch(()=>"");
-    let json;
-    try { json = text ? JSON.parse(text) : { ok:false, error: "Empty response" }; }
-    catch(e) { json = { ok:false, error: "Invalid JSON from server" }; }
-    // attach http status in case useful
-    if (!res.ok && json && !json.error) json.error = `HTTP ${res.status}`;
-    return json;
-  } catch (e) {
-    if (e && e.name === "AbortError") return { ok:false, error:"Request timeout" };
-    console.error("api error", e);
-    return { ok:false, error: e && e.message ? e.message : "Network error" };
+    const text = await res.text();
+    try { return JSON.parse(text); }
+    catch { return { ok:false, error:"Invalid JSON from server" }; }
+
+  } catch(e){
+    return { ok:false, error:"Network or timeout error" };
   } finally {
     hideLoader();
     setButtonsDisabled(false);
   }
 }
 
-// Navigation helper
-function showPage(id){
-  qsa(".page", document).forEach(p => {
-    if (p.id === id) { p.classList.add("active"); p.setAttribute("aria-hidden","false"); }
-    else { p.classList.remove("active"); p.setAttribute("aria-hidden","true"); }
-  });
-  menuButtons.forEach(b => b.classList.remove("active"));
-  const btn = qs(`.menu-item[data-target="${id}"]`, document);
-  if (btn) btn.classList.add("active");
+// Disable buttons during loading
+function setButtonsDisabled(s){
+  [checkBtn, addBtn, reportBtn, refreshLeaderboardBtn, profileLoadBtn]
+  .forEach(b => b && (b.disabled = s));
 }
 
-// ---------- Home actions ----------
-async function handleCheck(){
-  if (!linkInput) return notify("Link input missing", "err");
-  const url = linkInput.value.trim();
-  if(!/^https?:\/\//i.test(url)) return notify("Please paste a valid URL (https://...)", "err");
-  const res = await api("/checkLink", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({ url }) }, 10000);
-  if (!res) return notify("No response from server", "err");
-  if (!res.ok) return notify(res.error || "Server error. Try again later.", "err");
-  if (!res.exists) {
-    notify("No record found. You can add it.", "info");
-    showPage("home");
-    return;
-  }
-  const { link, reports = [], confirmations = [] } = res;
-  const status = link.status || "pending";
-  safeRun(()=> {
-    if (!resultBox) return;
+// ✅ Notification
+function notify(msg, type="info"){
+  safe(()=>{
+    if(!resultBox) return;
     resultBox.classList.remove("hidden");
-    resultBox.innerHTML = `
-      <div><strong>Status:</strong> ${escapeHtml(status.toUpperCase())}</div>
-      <div><strong>Added:</strong> ${link.created_at ? escapeHtml(new Date(link.created_at).toLocaleString()) : "unknown"}</div>
-      <div><strong>Reports:</strong> ${reports.length} • <strong>Confirmations:</strong> ${confirmations.length}</div>
-    `;
+    resultBox.textContent = msg;
+    resultBox.style.borderLeft = type === "err"
+      ? "4px solid #e33"
+      : "4px solid var(--accent)";
+    setTimeout(()=>resultBox.classList.add("hidden"), 5000);
   });
+}
+
+// ✅ Navigation
+function showPage(id){
+  qsa(".page").forEach(p=>{
+    p.classList.toggle("active", p.id === id);
+  });
+  menuButtons.forEach(b=>{
+    b.classList.toggle("active", b.dataset.target === id);
+  });
+}
+
+// ✅ Home Actions (check, add, report)
+async function handleCheck(){
+  const url = linkInput?.value?.trim();
+  if(!/^https?:\/\//i.test(url)) return notify("Enter valid link", "err");
+  const res = await api("/checkLink",{method:"POST",headers:{ "content-type":"application/json"},body:JSON.stringify({url})});
+  if(!res.ok) return notify(res.error,"err");
+  notify(res.exists ? "Link found" : "Not found — add it!", "info");
 }
 
 async function handleAdd(){
-  if (!linkInput) return notify("Link input missing", "err");
-  const url = linkInput.value.trim();
-  if(!/^https?:\/\//i.test(url)) return notify("Please paste a valid URL (https://...)", "err");
+  const url = linkInput?.value?.trim();
+  if(!/^https?:\/\//i.test(url)) return notify("Enter valid link", "err");
   const payload = { url };
-  if (profileInput && profileInput.value) payload.telegram_id = profileInput.value.trim();
-  const res = await api("/addLink", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(payload) }, 12000);
-  if (!res) return notify("No response from server", "err");
-  if (!res.ok) return notify(res.error || "Server error. Try again later.", "err");
-  if (res.added) {
-    notify("✅ Link added — points awarded.");
-    linkInput.value = "";
-    await loadRecentLinks();
-    // refresh leaderboard/profile as needed (fire and forget)
-    loadLeaderboard().catch(()=>{});
-    if (profileInput && profileInput.value) loadProfile(profileInput.value.trim()).catch(()=>{});
-  } else {
-    notify(res.message || "Link already exists.", "info");
-  }
+  const res = await api("/addLink",{method:"POST",headers:{ "content-type":"application/json"},body:JSON.stringify(payload)});
+  notify(res.ok ? "✅ Link added!" : res.error, res.ok?"info":"err");
+  linkInput.value = "";
+  loadRecentLinks();
+  loadLeaderboard();
 }
 
 async function handleReport(){
-  if (!linkInput) return notify("Link input missing", "err");
-  const url = linkInput.value.trim();
-  if(!/^https?:\/\//i.test(url)) return notify("Please paste a valid URL (https://...)", "err");
-  const reason = window.prompt("Why are you reporting this link? (optional)");
-  if (reason === null) return; // cancelled
-  const payload = { url, reason };
-  if (profileInput && profileInput.value) payload.telegram_id = profileInput.value.trim();
-  const res = await api("/report", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(payload) }, 10000);
-  if (!res) return notify("No response from server", "err");
-  if (!res.ok) return notify(res.error || "Server error. Try again later.", "err");
-  notify("Report submitted. Thanks!");
-  linkInput.value = "";
-  await loadRecentLinks();
-  loadLeaderboard().catch(()=>{});
+  const url = linkInput?.value?.trim();
+  if(!/^https?:\/\//i.test(url)) return notify("Enter valid link", "err");
+  const reason = prompt("Report reason:");
+  if(reason === null) return;
+  const res = await api("/report",{method:"POST",headers:{ "content-type":"application/json"},body:JSON.stringify({url,reason})});
+  notify(res.ok ? "Reported!" : res.error, res.ok?"info":"err");
+  loadLeaderboard();
 }
 
-// ---------- Recent Links ----------
+// ✅ Recent Links
 async function loadRecentLinks(){
-  if (!recentList) return;
+  if(!recentList) return;
   recentList.textContent = "Loading...";
-  const res = await api("/recent", {}, 10000);
-  if (!res || !res.ok) {
-    recentList.textContent = "Failed to load recent links";
-    return;
-  }
-  if (!Array.isArray(res.rows) || res.rows.length === 0) {
-    recentList.textContent = "No recent links yet";
-    return;
-  }
-  renderRecent(res.rows);
+  const res = await api("/recent");
+  if(!res.ok) return recentList.textContent = "Failed";
+  if(!res.rows.length) return recentList.textContent = "No recent links";
+  recentList.innerHTML = res.rows.map(r=>`
+    <li><a href="${escapeHtml(r.url)}" target="_blank">${escapeHtml(r.url)}</a></li>
+  `).join("");
 }
 
-function renderRecent(rows){
-  if (!recentList) return;
-  if (!rows || rows.length === 0) {
-    recentList.textContent = "No recent links yet";
-    return;
-  }
-  const html = rows.map(l => {
-    const d = l.created_at ? new Date(l.created_at).toLocaleString() : "?";
-    return `<li><a href="${escapeHtml(l.url)}" target="_blank" rel="noreferrer">${escapeHtml(l.url)}</a> — ${escapeHtml(l.status || "pending")} • ${escapeHtml(d)}</li>`;
-  }).join("");
-  recentList.innerHTML = `<ul>${html}</ul>`;
-}
-
-// ---------- Leaderboard ----------
-let leaderboardLock = false;
-const debouncedLoadLeaderboard = debounce(loadLeaderboard, 400);
-
+// ✅ Leaderboard
 async function loadLeaderboard(){
-  if (!leaderboardList) return;
-  if (leaderboardLock) return; // prevent overlapping requests
-  leaderboardLock = true;
-  try {
-    leaderboardList.textContent = "Loading...";
-    const res = await api("/leaderboard", {}, 10000);
-    if (!res || !res.ok) {
-      leaderboardList.textContent = "Failed to load";
-      return;
-    }
-    if (!res.rows || res.rows.length === 0) {
-      leaderboardList.textContent = "No contributors yet";
-      return;
-    }
-    leaderboardList.innerHTML = `<ol>${res.rows.map(r => `<li>${escapeHtml(r.username || r.telegram_id)} — ${r.points} pts</li>`).join("")}</ol>`;
-  } finally {
-    leaderboardLock = false;
-  }
+  if(!leaderboardList) return;
+  leaderboardList.textContent = "Loading...";
+  const res = await api("/leaderboard");
+  if(!res.ok) return leaderboardList.textContent = "Failed";
+  leaderboardList.innerHTML = res.rows.map(r=>
+    `<li>${escapeHtml(r.username||"User")} - ${r.points} pts</li>`
+  ).join("");
 }
 
-// ---------- Profile ----------
-async function loadProfile(id){
-  if (!profileData) return;
-  if (!id) return notify("Enter Telegram ID", "err");
-  profileData.classList.add("hidden");
-  const res = await api(`/profile/${encodeURIComponent(id)}`, {}, 10000);
-  if (!res) return notify("No response from server", "err");
-  if (!res.ok) return notify(res.error || "Profile not found or server error", "err");
-  const user = res.user;
-  profileData.classList.remove("hidden");
-  profileData.innerHTML = `
-    <div><strong>${escapeHtml(user.username || user.telegram_id)}</strong></div>
-    <div>Points: ${user.points}</div>
-    <div style="margin-top:8px"><strong>Recent links</strong></div>
-    <ul>${(res.links || []).map(l => `<li>${escapeHtml(l.url)} — ${escapeHtml(l.status)} • ${l.created_at ? escapeHtml(new Date(l.created_at).toLocaleString()) : "?"}</li>`).join("")}</ul>
-  `;
-  if (pointsVal) pointsVal.textContent = user.points || 0;
-  if (linksCount) linksCount.textContent = (res.links || []).length;
-  updateTasksForUser(user);
-}
-
-// ---------- Earn tasks (client-side) ----------
+// ✅ Earn Tasks (local only for now)
 const TASKS = [
-  { id: "t_add_1", title: "Add 1 new link", points: 5, hint: "Add a link from Home" },
-  { id: "t_report_1", title: "Report 1 suspicious link", points: 5, hint: "Use Report from Home" },
-  { id: "t_invite_1", title: "Invite 1 friend", points: 10, hint: "Share referral link" }
+  {id:"t1",title:"Add 1 link",points:5},
+  {id:"t2",title:"Report 1 link",points:5},
+  {id:"t3",title:"Invite friend",points:10},
 ];
 
-function renderTasks(){
-  if (!taskList) return;
-  taskList.innerHTML = "";
-  const saved = JSON.parse(localStorage.getItem("lt_tasks") || "{}");
-  TASKS.forEach(t => {
-    const done = !!saved[t.id];
-    const li = document.createElement("li");
-    li.className = "task-item";
-    li.innerHTML = `
-      <div>
-        <div class="task-title">${escapeHtml(t.title)}</div>
-        <div class="task-meta">${escapeHtml(t.hint)} — ${t.points} pts</div>
-      </div>
-      <div>
-        <button class="btn ${done ? "neutral" : "primary"}" data-task="${escapeHtml(t.id)}">${done ? "Claimed" : "Claim"}</button>
-      </div>
-    `;
-    taskList.appendChild(li);
-  });
-  // attach handlers
-  taskList.querySelectorAll("button[data-task]").forEach(b => {
-    b.addEventListener("click", () => {
-      const id = b.dataset.task;
-      const saved = JSON.parse(localStorage.getItem("lt_tasks") || "{}");
-      if (saved[id]) { notify("Already claimed", "info"); return; }
-      saved[id] = { claimed_at: Date.now() };
-      localStorage.setItem("lt_tasks", JSON.stringify(saved));
-      b.textContent = "Claimed";
-      b.classList.remove("primary");
-      b.classList.add("neutral");
-      notify("Task claimed locally. Server sync optional.", "info");
-      // update visible points (client-side)
-      if (pointsVal) pointsVal.textContent = (parseInt(pointsVal.textContent || "0", 10) + (TASKS.find(x=>x.id===id).points || 0));
-    });
+function loadTasks(){
+  if(!taskList) return;
+  const saved = JSON.parse(localStorage.getItem("tasks")||"{}");
+  taskList.innerHTML = TASKS.map(t=>`
+    <li>
+      ${escapeHtml(t.title)} — ${t.points} pts
+      <button data-t="${t.id}">
+        ${saved[t.id]?"✅ Done":"Claim"}
+      </button>
+    </li>
+  `).join("");
+
+  taskList.querySelectorAll("button").forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.t;
+      saved[id] = true;
+      localStorage.setItem("tasks",JSON.stringify(saved));
+      notify("✅ Task Completed");
+      loadTasks();
+    };
   });
 }
 
-function updateTasksForUser(user){
-  // We currently render tasks locally. You can implement server verification later.
-  renderTasks();
-}
-
-// ---------- Telegram WebApp init ----------
-function initTelegram(){
-  try {
-    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
-      const init = window.Telegram.WebApp.initDataUnsafe || {};
-      const user = init.user || null;
-      if (user) {
-        safeRun(()=> { if (userBadge) userBadge.textContent = user.username ? `@${user.username}` : user.id; });
-        safeRun(()=> { if (profileInput) profileInput.value = user.id; });
-        // register silently
-        fetch(apiBase + "/register", {
-          method: "POST",
-          headers: {"content-type":"application/json"},
-          body: JSON.stringify({ telegram_id: user.id, username: user.username })
-        }).catch(()=>{});
-      } else {
-        safeRun(()=>{ if (userBadge) userBadge.textContent = "—"; });
-      }
-    } else {
-      safeRun(()=>{ if (userBadge) userBadge.textContent = "—"; });
-    }
-  } catch(e){ console.warn("Telegram init error", e); }
-}
-
-// ---------- Wiring ----------
-document.addEventListener("DOMContentLoaded", () => {
-  // menu buttons
-  menuButtons.forEach(btn => {
-    btn.addEventListener("click", () => showPage(btn.dataset.target));
+// ✅ Init
+document.addEventListener("DOMContentLoaded", ()=>{
+  menuButtons.forEach(btn=>{
+    btn.onclick = ()=>showPage(btn.dataset.target);
   });
 
-  // action buttons (guard existence)
-  if (checkBtn) checkBtn.addEventListener("click", handleCheck);
-  if (addBtn) addBtn.addEventListener("click", handleAdd);
-  if (reportBtn) reportBtn.addEventListener("click", handleReport);
-  if (refreshLeaderboardBtn) refreshLeaderboardBtn.addEventListener("click", debouncedLoadLeaderboard);
-  if (profileLoadBtn) profileLoadBtn.addEventListener("click", () => { if(profileInput) loadProfile(profileInput.value.trim()); });
+  checkBtn?.addEventListener("click",handleCheck);
+  addBtn?.addEventListener("click",handleAdd);
+  reportBtn?.addEventListener("click",handleReport);
+  refreshLeaderboardBtn?.addEventListener("click",loadLeaderboard);
+  profileLoadBtn?.addEventListener("click",()=>loadProfile(profileInput.value));
 
-  // show default
   showPage("home");
-
-  // initial loads with safety
-  // Show loader briefly if backend responds slowly — wrapper will hide it afterwards
-  loadRecentLinks().catch(()=>{ if (recentList) recentList.textContent = "Failed to load"; });
-  loadLeaderboard().catch(()=>{ if (leaderboardList) leaderboardList.textContent = "Failed to load"; });
-
-  initTelegram();
-  renderTasks();
-
-  // periodic refresh (no overlapping)
-  setInterval(()=>{ loadLeaderboard().catch(()=>{}); }, 45000);
+  loadRecentLinks();
+  loadLeaderboard();
+  loadTasks();
 });
 
-// global safety: hide loader if JS throws
-window.addEventListener("error", () => hideLoader());
-window.addEventListener("unhandledrejection", () => hideLoader());
-
+// ✅ Global fallback — always hide loader
+window.addEventListener("error", hideLoader);
+window.addEventListener("unhandledrejection", hideLoader);
