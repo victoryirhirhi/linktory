@@ -1,12 +1,12 @@
 /////////////////////////////////////////////////
-// ✅ webapp/app.js — CLEAN VERSION (NO LOADER)
+// ✅ webapp/app.js — CLEAN (NO LOADER AT ALL)
 /////////////////////////////////////////////////
 
 const qs = (sel, root = document) => root.querySelector(sel);
 const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const apiBase = "/api";
 
-// DOM Elements
+// DOM
 const linkInput = qs("#linkInput");
 const checkBtn = qs("#checkBtn");
 const addBtn = qs("#addBtn");
@@ -18,7 +18,7 @@ const refreshLeaderboardBtn = qs("#refreshLeaderboard");
 const taskList = qs("#taskList");
 const menuButtons = qsa(".menu-item");
 
-// ✅ API Wrapper (simple)
+// ✅ Simple API wrapper
 async function api(path, opts = {}) {
   try {
     const res = await fetch(apiBase + path, {
@@ -26,17 +26,16 @@ async function api(path, opts = {}) {
       ...opts
     });
     return await res.json().catch(() => ({}));
-  } catch (err) {
+  } catch {
     return { ok: false, error: "Network error" };
   }
 }
 
-// ✅ Notification
+// ✅ Messages
 function notify(msg, err = false) {
-  if (!resultBox) return;
   resultBox.textContent = msg;
-  resultBox.style.borderLeft = err ? "4px solid #e33" : "4px solid var(--accent)";
   resultBox.classList.remove("hidden");
+  resultBox.style.borderLeft = err ? "4px solid #e33" : "4px solid var(--accent)";
   setTimeout(() => resultBox.classList.add("hidden"), 4000);
 }
 
@@ -46,38 +45,37 @@ function showPage(id) {
   menuButtons.forEach(b => b.classList.toggle("active", b.dataset.target === id));
 }
 
-// ✅ Home Buttons
+// ✅ Home actions
 async function handleCheck() {
   const url = linkInput.value.trim();
-  if (!/^https?:\/\//i.test(url)) return notify("Enter valid link", true);
+  if (!/^https?:\/\//i.test(url)) return notify("Enter valid URL", true);
 
   const res = await api("/checkLink", {
     method: "POST",
     body: JSON.stringify({ url })
   });
-  if (!res.ok) return notify(res.error, true);
 
   notify(res.exists ? "⚠️ Already exists" : "✅ Safe — Add it!");
 }
 
 async function handleAdd() {
   const url = linkInput.value.trim();
-  if (!/^https?:\/\//i.test(url)) return notify("Enter valid link", true);
+  if (!/^https?:\/\//i.test(url)) return notify("Enter valid URL", true);
 
   const res = await api("/addLink", {
     method: "POST",
     body: JSON.stringify({ url })
   });
 
-  notify(res.ok ? "✅ Link Added!" : res.error, !res.ok);
-  linkInput.value = "";
+  notify(res.ok ? "✅ Link Added" : res.error, !res.ok);
   loadRecentLinks();
   loadLeaderboard();
+  linkInput.value = "";
 }
 
 async function handleReport() {
   const url = linkInput.value.trim();
-  if (!/^https?:\/\//i.test(url)) return notify("Enter valid link", true);
+  if (!/^https?:\/\//i.test(url)) return notify("Enter valid URL", true);
 
   const reason = prompt("Reason?");
   if (!reason) return;
@@ -91,43 +89,48 @@ async function handleReport() {
   loadLeaderboard();
 }
 
-// ✅ Recent Links
+// ✅ Recent links
 async function loadRecentLinks() {
-  if (!recentList) return;
   recentList.textContent = "Loading...";
   const res = await api("/recent");
+
   if (!res.ok || !res.rows) {
     recentList.textContent = "Failed";
     return;
   }
+
   recentList.innerHTML = res.rows.length
-    ? res.rows.map(r => `<li><a href="${r.url}" target="_blank">${r.url}</a></li>`).join("")
+    ? res.rows.map(r =>
+        `<li><a href="${r.url}" target="_blank">${r.url}</a></li>`
+      ).join("")
     : "No links yet";
 }
 
 // ✅ Leaderboard
 async function loadLeaderboard() {
-  if (!leaderboardList) return;
   leaderboardList.textContent = "Loading...";
   const res = await api("/leaderboard");
+
   if (!res.ok || !res.rows) {
     leaderboardList.textContent = "No data";
     return;
   }
+
   leaderboardList.innerHTML = res.rows
     .map(r => `<li>${r.username || "User"} — ${r.points} pts</li>`)
     .join("");
 }
 
-// ✅ Earn — Local Tasks
+// ✅ Tasks
 const TASKS = [
-  { id: "t1", title: "Add 1 link", points: 5 },
-  { id: "t2", title: "Report link", points: 5 },
-  { id: "t3", title: "Invite friend", points: 10 }
+  { id: "t1", title: "Add a link ✅", points: 5 },
+  { id: "t2", title: "Report a link 🚨", points: 5 },
+  { id: "t3", title: "Invite a friend 🤝", points: 10 }
 ];
 
 function loadTasks() {
   const saved = JSON.parse(localStorage.getItem("tasks") || "{}");
+
   taskList.innerHTML = TASKS.map(t => `
     <li>
       ${t.title} — ${t.points} pts
@@ -141,19 +144,19 @@ function loadTasks() {
     btn.onclick = () => {
       saved[btn.dataset.id] = true;
       localStorage.setItem("tasks", JSON.stringify(saved));
-      notify("✅ Task Completed!");
+      notify("✅ Task completed!");
       loadTasks();
     };
   });
 }
 
-// ✅ Init App
+// ✅ Init
 document.addEventListener("DOMContentLoaded", () => {
   menuButtons.forEach(btn => btn.onclick = () => showPage(btn.dataset.target));
-  checkBtn?.addEventListener("click", handleCheck);
-  addBtn?.addEventListener("click", handleAdd);
-  reportBtn?.addEventListener("click", handleReport);
-  refreshLeaderboardBtn?.addEventListener("click", loadLeaderboard);
+  checkBtn.onclick = handleCheck;
+  addBtn.onclick = handleAdd;
+  reportBtn.onclick = handleReport;
+  refreshLeaderboardBtn.onclick = loadLeaderboard;
 
   showPage("home");
   loadRecentLinks();
