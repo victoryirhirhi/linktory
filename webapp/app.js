@@ -1,4 +1,6 @@
-// webapp/app.js — CLEAN & FIXED
+/////////////////////////////////////////////////
+// ✅ webapp/app.js — FULL CLEAN & FIXED
+/////////////////////////////////////////////////
 
 const qs = (sel, root = document) => root.querySelector(sel);
 const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -6,7 +8,6 @@ const apiBase = "/api";
 
 // DOM Elements
 const loader = qs("#loader");
-const userBadge = qs("#userBadge");
 const linkInput = qs("#linkInput");
 const checkBtn = qs("#checkBtn");
 const addBtn = qs("#addBtn");
@@ -15,169 +16,165 @@ const resultBox = qs("#result");
 const recentList = qs("#recentList");
 const leaderboardList = qs("#leaderboardList");
 const refreshLeaderboardBtn = qs("#refreshLeaderboard");
-const profileInput = qs("#profileInput");
-const profileData = qs("#profileData");
-const profileLoadBtn = qs("#profileLoad");
-const pointsVal = qs("#pointsVal");
-const linksCount = qs("#linksCount");
 const taskList = qs("#taskList");
 const menuButtons = qsa(".menu-item");
 
-// Utility
-const safe = fn => { try { fn(); } catch(e){ console.warn(e) } };
-const escapeHtml = s => (s || "").replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// ✅ Loader Control — FIXED!
+function showLoader() {
+  loader?.classList.remove("hidden");
+}
+function hideLoader() {
+  loader?.classList.add("hidden");
+}
 
-// ✅ Loader Control
-function showLoader(){ if(loader){ loader.classList.remove("hidden"); }}
-function hideLoader(){ if(loader){ loader.classList.add("hidden"); }}
+// Disable UI while loading
+function setLoadingState(state) {
+  [checkBtn, addBtn, reportBtn, refreshLeaderboardBtn]
+    .forEach(btn => btn && (btn.disabled = state));
+  state ? showLoader() : hideLoader();
+}
 
-// ✅ Global API Wrapper (only one!)
-async function api(path, opts = {}, timeoutMs = 10000){
-  showLoader();
-  setButtonsDisabled(true);
-
+// ✅ API Wrapper — Loader ALWAYS stops ✅
+async function api(path, opts = {}) {
+  setLoadingState(true);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(()=>controller.abort(), timeoutMs);
-
-    const res = await fetch(apiBase + path, { signal: controller.signal, ...opts });
-
-    clearTimeout(timer);
-    const text = await res.text();
-    try { return JSON.parse(text); }
-    catch { return { ok:false, error:"Invalid JSON from server" }; }
-
-  } catch(e){
-    return { ok:false, error:"Network or timeout error" };
+    const res = await fetch(apiBase + path, {
+      headers: { "Content-Type": "application/json" },
+      ...opts
+    });
+    const json = await res.json().catch(() => ({}));
+    return json;
+  } catch (err) {
+    return { ok: false, error: "Request failed" };
   } finally {
-    hideLoader();
-    setButtonsDisabled(false);
+    setLoadingState(false);
   }
 }
 
-// Disable buttons during loading
-function setButtonsDisabled(s){
-  [checkBtn, addBtn, reportBtn, refreshLeaderboardBtn, profileLoadBtn]
-  .forEach(b => b && (b.disabled = s));
-}
-
-// ✅ Notification
-function notify(msg, type="info"){
-  safe(()=>{
-    if(!resultBox) return;
-    resultBox.classList.remove("hidden");
-    resultBox.textContent = msg;
-    resultBox.style.borderLeft = type === "err"
-      ? "4px solid #e33"
-      : "4px solid var(--accent)";
-    setTimeout(()=>resultBox.classList.add("hidden"), 5000);
-  });
+// ✅ Notifications
+function notify(msg, err = false) {
+  if (!resultBox) return;
+  resultBox.textContent = msg;
+  resultBox.style.borderLeft = err ? "4px solid #e33" : "4px solid var(--accent)";
+  resultBox.classList.remove("hidden");
+  setTimeout(() => resultBox.classList.add("hidden"), 4000);
 }
 
 // ✅ Navigation
-function showPage(id){
-  qsa(".page").forEach(p=>{
-    p.classList.toggle("active", p.id === id);
-  });
-  menuButtons.forEach(b=>{
-    b.classList.toggle("active", b.dataset.target === id);
-  });
+function showPage(id) {
+  qsa(".page").forEach(p => p.classList.toggle("active", p.id === id));
+  menuButtons.forEach(b => b.classList.toggle("active", b.dataset.target === id));
 }
 
-// ✅ Home Actions (check, add, report)
-async function handleCheck(){
-  const url = linkInput?.value?.trim();
-  if(!/^https?:\/\//i.test(url)) return notify("Enter valid link", "err");
-  const res = await api("/checkLink",{method:"POST",headers:{ "content-type":"application/json"},body:JSON.stringify({url})});
-  if(!res.ok) return notify(res.error,"err");
-  notify(res.exists ? "Link found" : "Not found — add it!", "info");
+// ✅ Home Actions
+async function handleCheck() {
+  const url = linkInput.value.trim();
+  if (!/^https?:\/\//i.test(url)) return notify("Enter valid link", true);
+
+  const res = await api("/checkLink", {
+    method: "POST",
+    body: JSON.stringify({ url })
+  });
+
+  if (!res.ok) return notify(res.error || "Error checking link", true);
+  notify(res.exists ? "⚠️ Already exists!" : "✅ Safe — Add it!");
 }
 
-async function handleAdd(){
-  const url = linkInput?.value?.trim();
-  if(!/^https?:\/\//i.test(url)) return notify("Enter valid link", "err");
-  const payload = { url };
-  const res = await api("/addLink",{method:"POST",headers:{ "content-type":"application/json"},body:JSON.stringify(payload)});
-  notify(res.ok ? "✅ Link added!" : res.error, res.ok?"info":"err");
+async function handleAdd() {
+  const url = linkInput.value.trim();
+  if (!/^https?:\/\//i.test(url)) return notify("Enter valid link", true);
+
+  const res = await api("/addLink", {
+    method: "POST",
+    body: JSON.stringify({ url })
+  });
+
+  notify(res.ok ? "✅ Link Added!" : res.error, !res.ok);
   linkInput.value = "";
   loadRecentLinks();
   loadLeaderboard();
 }
 
-async function handleReport(){
-  const url = linkInput?.value?.trim();
-  if(!/^https?:\/\//i.test(url)) return notify("Enter valid link", "err");
-  const reason = prompt("Report reason:");
-  if(reason === null) return;
-  const res = await api("/report",{method:"POST",headers:{ "content-type":"application/json"},body:JSON.stringify({url,reason})});
-  notify(res.ok ? "Reported!" : res.error, res.ok?"info":"err");
+async function handleReport() {
+  const url = linkInput.value.trim();
+  if (!/^https?:\/\//i.test(url)) return notify("Enter valid link", true);
+
+  const reason = prompt("Reason for report?");
+  if (!reason) return;
+
+  const res = await api("/report", {
+    method: "POST",
+    body: JSON.stringify({ url, reason })
+  });
+
+  notify(res.ok ? "⚠️ Report submitted!" : res.error, !res.ok);
   loadLeaderboard();
 }
 
 // ✅ Recent Links
-async function loadRecentLinks(){
-  if(!recentList) return;
+async function loadRecentLinks() {
+  if (!recentList) return;
   recentList.textContent = "Loading...";
   const res = await api("/recent");
-  if(!res.ok) return recentList.textContent = "Failed";
-  if(!res.rows.length) return recentList.textContent = "No recent links";
-  recentList.innerHTML = res.rows.map(r=>`
-    <li><a href="${escapeHtml(r.url)}" target="_blank">${escapeHtml(r.url)}</a></li>
-  `).join("");
+  if (!res.ok || !res.rows) {
+    recentList.textContent = "Failed to load links";
+    return;
+  }
+  recentList.innerHTML = res.rows.length
+    ? res.rows.map(r => `<li><a href="${r.url}" target="_blank">${r.url}</a></li>`).join("")
+    : "No recent links";
 }
 
 // ✅ Leaderboard
-async function loadLeaderboard(){
-  if(!leaderboardList) return;
+async function loadLeaderboard() {
+  if (!leaderboardList) return;
   leaderboardList.textContent = "Loading...";
   const res = await api("/leaderboard");
-  if(!res.ok) return leaderboardList.textContent = "Failed";
-  leaderboardList.innerHTML = res.rows.map(r=>
-    `<li>${escapeHtml(r.username||"User")} - ${r.points} pts</li>`
-  ).join("");
+  if (!res.ok || !res.rows) {
+    leaderboardList.textContent = "No data";
+    return;
+  }
+  leaderboardList.innerHTML = res.rows
+    .map(r => `<li>${r.username ?? "User"} — ${r.points} pts</li>`)
+    .join("");
 }
 
-// ✅ Earn Tasks (local only for now)
+// ✅ Earn Tasks (Offline Local Achievements)
 const TASKS = [
-  {id:"t1",title:"Add 1 link",points:5},
-  {id:"t2",title:"Report 1 link",points:5},
-  {id:"t3",title:"Invite friend",points:10},
+  { id: "t1", title: "Add your first link", points: 5 },
+  { id: "t2", title: "Report a scam", points: 5 },
+  { id: "t3", title: "Share Linktory", points: 10 }
 ];
 
-function loadTasks(){
-  if(!taskList) return;
-  const saved = JSON.parse(localStorage.getItem("tasks")||"{}");
-  taskList.innerHTML = TASKS.map(t=>`
+function loadTasks() {
+  const saved = JSON.parse(localStorage.getItem("tasks") || "{}");
+  taskList.innerHTML = TASKS.map(t => `
     <li>
-      ${escapeHtml(t.title)} — ${t.points} pts
-      <button data-t="${t.id}">
-        ${saved[t.id]?"✅ Done":"Claim"}
+      ${t.title} — ${t.points} pts
+      <button data-id="${t.id}">
+        ${saved[t.id] ? "✅ Done" : "Claim"}
       </button>
     </li>
   `).join("");
 
-  taskList.querySelectorAll("button").forEach(btn=>{
-    btn.onclick = ()=>{
-      const id = btn.dataset.t;
+  taskList.querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
       saved[id] = true;
-      localStorage.setItem("tasks",JSON.stringify(saved));
-      notify("✅ Task Completed");
+      localStorage.setItem("tasks", JSON.stringify(saved));
+      notify("✅ Task Completed!");
       loadTasks();
     };
   });
 }
 
-// ✅ Init
-document.addEventListener("DOMContentLoaded", ()=>{
-  menuButtons.forEach(btn=>{
-    btn.onclick = ()=>showPage(btn.dataset.target);
-  });
-
-  checkBtn?.addEventListener("click",handleCheck);
-  addBtn?.addEventListener("click",handleAdd);
-  reportBtn?.addEventListener("click",handleReport);
-  refreshLeaderboardBtn?.addEventListener("click",loadLeaderboard);
-  profileLoadBtn?.addEventListener("click",()=>loadProfile(profileInput.value));
+// ✅ INIT
+document.addEventListener("DOMContentLoaded", () => {
+  menuButtons.forEach(btn => btn.onclick = () => showPage(btn.dataset.target));
+  checkBtn?.addEventListener("click", handleCheck);
+  addBtn?.addEventListener("click", handleAdd);
+  reportBtn?.addEventListener("click", handleReport);
+  refreshLeaderboardBtn?.addEventListener("click", loadLeaderboard);
 
   showPage("home");
   loadRecentLinks();
@@ -185,6 +182,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
   loadTasks();
 });
 
-// ✅ Global fallback — always hide loader
+// ✅ ALWAYS ensure loader stops (final safety)
 window.addEventListener("error", hideLoader);
 window.addEventListener("unhandledrejection", hideLoader);
