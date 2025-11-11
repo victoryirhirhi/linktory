@@ -5,54 +5,50 @@ const apiBase = "/api";
 let telegram_id = null;
 let username = null;
 
-// ---------------------------
-// Telegram + session init
-// ---------------------------
+// ✅ Telegram initialization + token fallback
 async function initTelegram() {
-  const statusEl = qs("#status");
-  statusEl.textContent = "Checking Telegram login...";
-
   try {
     const tg = window.Telegram?.WebApp;
-    if (!tg) {
-      statusEl.textContent = "Please open this app from Telegram.";
+
+    // Check token in query param
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get("token");
+
+    if (token) {
+      const res = await fetch("/api/sessionFromToken?token=" + token);
+      const data = await res.json();
+      if (data.ok) {
+        telegram_id = data.telegram_id;
+        username = data.username;
+        qs("#userBadge").textContent = "@" + username;
+        return;
+      }
+    }
+
+    // Fallback to Telegram WebApp
+    if (!tg || !tg.initDataUnsafe?.user) {
+      showGuest("Please open this app from Telegram.");
       return;
     }
 
-    tg.expand();
-    tg.ready();
-
-    // Prefer initDataUnsafe if no signed initData
-    const user = tg.initDataUnsafe?.user;
-    if (!user) {
-      statusEl.textContent = "Telegram user not found.";
-      return;
-    }
-
+    const user = tg.initDataUnsafe.user;
     telegram_id = user.id;
     username = user.username || `u${telegram_id}`;
     qs("#userBadge").textContent = "@" + username;
 
-    // ✅ Call backend to register / verify
-    await fetch(apiBase + "/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegram_id, username }),
-    });
-
-    statusEl.textContent = "Logged in as @" + username;
-
-    // ✅ Load data only after Telegram session
-    await loadRecentLinks();
-    await loadLeaderboard();
   } catch (e) {
-    console.error("initTelegram error:", e);
-    statusEl.textContent = "Error initializing Telegram session.";
+    console.error("initTelegram error", e);
+    showGuest("Please open this from Telegram.");
   }
 }
 
+function showGuest(msg = "Guest mode: open in Telegram") {
+  qs("#userBadge").textContent = "Guest";
+  notify(msg, true);
+}
+
 // ---------------------------
-// API helper
+// API utility
 // ---------------------------
 async function api(path, opts = {}) {
   try {
@@ -84,15 +80,18 @@ function showPage(id) {
 }
 
 // ---------------------------
-// Link actions
+// Link Actions
 // ---------------------------
 async function handleCheck() {
   const url = qs("#linkInput").value.trim();
   if (!url.startsWith("http")) return notify("Enter valid URL", true);
 
-  const res = await api("/checkLink", { method: "POST", body: JSON.stringify({ url }) });
-  if (!res.ok) return notify(res.message || res.error || "Failed", true);
+  const res = await api("/checkLink", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
 
+  if (!res.ok) return notify(res.message || res.error || "Failed", true);
   notify(res.exists ? "Link found" : "No record, add it");
 }
 
@@ -108,8 +107,8 @@ async function handleAdd() {
 
   if (!res.ok) return notify(res.message || res.error || "Failed", true);
   notify(res.added ? "Added" : res.message || "Already exists");
-
   await loadRecentLinks();
+  await loadLeaderboard();
   qs("#linkInput").value = "";
 }
 
@@ -132,16 +131,20 @@ async function handleReport() {
 }
 
 // ---------------------------
-// Data loaders
+// Data Loaders
 // ---------------------------
 async function loadRecentLinks() {
   const box = qs("#recentList");
   box.textContent = "Loading...";
   const res = await api("/recent");
   if (!res.ok) return (box.textContent = "Failed to load");
-  if (!Array.isArray(res.rows) || res.rows.length === 0) return (box.textContent = "No links yet");
+  if (!Array.isArray(res.rows) || res.rows.length === 0)
+    return (box.textContent = "No links yet");
   box.innerHTML = res.rows
-    .map(r => `<li><a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`)
+    .map(
+      (r) =>
+        `<li><a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`
+    )
     .join("");
 }
 
@@ -150,21 +153,73 @@ async function loadLeaderboard() {
   box.textContent = "Loading...";
   const res = await api("/leaderboard");
   if (!res.ok) return (box.textContent = "Failed");
-  if (!Array.isArray(res.rows) || res.rows.length === 0) return (box.textContent = "No contributors yet");
+  if (!Array.isArray(res.rows) || res.rows.length === 0)
+    return (box.textContent = "No contributors yet");
   box.innerHTML = res.rows
-    .map(r => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`)
+    .map(
+      (r) =>
+        `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`
+    )
     .join("");
 }
 
+function loadTasks() {
+  const list = qs("#taskList");
+  if (!list) return;
+  const saved = JSON.parse(localStorage.getItem("tasks") || "{}");
+  const tasks = [
+    { id: "t_add_1", title: "Add 1 link", points: 5 },
+    { id: "t_report_1", title: "Report 1 link", points: 5 },
+    { id: "t_invite_1", title: "Invite 1 friend", points: 10 },
+  ];
+  list.innerHTML = tasks
+    .map(
+      (t) => `
+
+    <li>
+      <div>
+        <div class="task-title">${t.title}</div>
+        <div class="task-meta">${t.points} pts</div>
+      </div>
+      <div>
+        <button data-task="${t.id}" class="btn ${
+        saved[t.id] ? "neutral" : "primary"
+      }">${saved[t.id] ? "Claimed" : "Claim"}</button>
+      </div>
+    </li>
+  `
+    )
+    .join("");
+
+  list.querySelectorAll("button[data-task]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const id = b.dataset.task;
+      const s = JSON.parse(localStorage.getItem("tasks") || "{}");
+      if (s[id]) return notify("Already claimed");
+      s[id] = { claimed_at: Date.now() };
+      localStorage.setItem("tasks", JSON.stringify(s));
+      notify("Task claimed locally");
+      loadTasks();
+    });
+  });
+}
+
 // ---------------------------
-// Init
+// Initialize everything
 // ---------------------------
 document.addEventListener("DOMContentLoaded", () => {
   initTelegram();
 
-  qsa(".menu-item").forEach(btn => btn.addEventListener("click", () => showPage(btn.dataset.target)));
+  qsa(".menu-item").forEach((btn) =>
+    btn.addEventListener("click", () => showPage(btn.dataset.target))
+  );
   qs("#checkBtn").addEventListener("click", handleCheck);
   qs("#addBtn").addEventListener("click", handleAdd);
   qs("#reportBtn").addEventListener("click", handleReport);
   qs("#refreshLeaderboard").addEventListener("click", loadLeaderboard);
+
+  showPage("home");
+  loadRecentLinks();
+  loadLeaderboard();
+  loadTasks();
 });
