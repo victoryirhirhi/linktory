@@ -1,3 +1,4 @@
+// bot/start.js
 import { Markup } from "telegraf";
 
 export function setupStart(bot, pool) {
@@ -13,12 +14,9 @@ export function setupStart(bot, pool) {
       Markup.button.callback("🏆 Leaderboard", "ACTION_LEADERBOARD")
     ],
     [
-      {
-        text: "🚀 Open Linktory App",
-        web_app: { url: webAppUrl }
-      }
+      Markup.button.webApp("🚀 Open Linktory App", webAppUrl)
     ],
-    [ Markup.button.callback("👤 My Dashboard", "ACTION_DASHBOARD") ]
+    [Markup.button.callback("👤 My Dashboard", "ACTION_DASHBOARD")]
   ]);
 
   bot.start(async (ctx) => {
