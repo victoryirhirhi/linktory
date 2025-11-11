@@ -1,3 +1,4 @@
+// webapp/app.js
 const qs = (s, r = document) => r.querySelector(s);
 const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const apiBase = "/api";
@@ -5,47 +6,50 @@ const apiBase = "/api";
 let telegram_id = null;
 let username = null;
 
-// ✅ Telegram init + auto-login for existing users
+// ---------------------------
+// Telegram Mini App Initialization
+// ---------------------------
 async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
 
-    if (tg) {
-      tg.expand();
-      tg.ready();
-      const user = tg.initDataUnsafe?.user;
-      if (user) {
-        telegram_id = user.id;
-        username = user.username || `u${telegram_id}`;
-        qs("#userBadge").textContent = "@" + username;
-
-        // Register user if not exists
-        await fetch(apiBase + "/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ telegram_id, username }),
-        }).catch((e) => console.warn("register failed", e));
-
-        return;
-      }
-    }
-
-    // Fallback: check if user already exists in DB via session
-    const res = await fetch(apiBase + "/session", {
-      method: "GET",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    });
-    const data = await res.json();
-    if (data.ok && data.telegram_id) {
-      telegram_id = data.telegram_id;
-      username = data.username || `u${telegram_id}`;
-      qs("#userBadge").textContent = "@" + username;
+    if (!tg) {
+      console.warn("Not running inside Telegram WebApp");
+      showGuest("Please open this app from Telegram.");
       return;
     }
 
-    // Fallback: Guest mode
-    showGuest("Please open this app from Telegram or log in via bot.");
+    tg.expand();
+    tg.ready();
+
+    // Try to get Telegram user info from WebApp
+    let user = tg.initDataUnsafe?.user || null;
+
+    // Fallback: check server session (user already exists from bot)
+    if (!user) {
+      const res = await fetch(apiBase + "/session", { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok && data.telegram_id) {
+        telegram_id = data.telegram_id;
+        username = data.username || `u${telegram_id}`;
+        qs("#userBadge").textContent = "@" + username;
+        return;
+      }
+      showGuest("Please open this app from Telegram.");
+      return;
+    }
+
+    // Use WebApp user info
+    telegram_id = user.id;
+    username = user.username || `u${telegram_id}`;
+    qs("#userBadge").textContent = "@" + username;
+
+    // Auto-register user in backend
+    await fetch(apiBase + "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telegram_id, username }),
+    }).catch((e) => console.warn("register failed", e));
 
   } catch (e) {
     console.error("initTelegram error:", e);
@@ -53,13 +57,13 @@ async function initTelegram() {
   }
 }
 
-function showGuest(msg = "Guest mode") {
+function showGuest(msg = "Guest mode: open in Telegram") {
   qs("#userBadge").textContent = "Guest";
   notify(msg, true);
 }
 
 // ---------------------------
-// API utility
+// Utility and API functions
 // ---------------------------
 async function api(path, opts = {}) {
   try {
@@ -91,7 +95,7 @@ function showPage(id) {
 }
 
 // ---------------------------
-// Link actions
+// Link Actions
 // ---------------------------
 async function handleCheck() {
   const url = qs("#linkInput").value.trim();
@@ -142,7 +146,7 @@ async function handleReport() {
 }
 
 // ---------------------------
-// Loaders
+// Data Loaders
 // ---------------------------
 async function loadRecentLinks() {
   const box = qs("#recentList");
@@ -152,7 +156,10 @@ async function loadRecentLinks() {
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No links yet");
   box.innerHTML = res.rows
-    .map((r) => `<li><a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`)
+    .map(
+      (r) =>
+        `<li><a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`
+    )
     .join("");
 }
 
@@ -164,7 +171,10 @@ async function loadLeaderboard() {
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No contributors yet");
   box.innerHTML = res.rows
-    .map((r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`)
+    .map(
+      (r) =>
+        `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`
+    )
     .join("");
 }
 
@@ -209,10 +219,10 @@ function loadTasks() {
 }
 
 // ---------------------------
-// Initialize
+// Initialize everything
 // ---------------------------
-document.addEventListener("DOMContentLoaded", () => {
-  initTelegram();
+document.addEventListener("DOMContentLoaded", async () => {
+  await initTelegram();
 
   qsa(".menu-item").forEach((btn) =>
     btn.addEventListener("click", () => showPage(btn.dataset.target))
