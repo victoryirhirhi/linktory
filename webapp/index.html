@@ -5,6 +5,30 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Linktory Mini App</title>
   <link rel="stylesheet" href="/webapp/style.css" />
+  <style>
+    /* Modal styles */
+    .modal-bg {
+      display: none;
+      position: fixed;
+      top:0; left:0; right:0; bottom:0;
+      background: rgba(0,0,0,0.5);
+      justify-content:center;
+      align-items:center;
+      z-index:1000;
+    }
+    .modal-bg.active { display:flex; }
+    .modal-content {
+      background:#fff;
+      padding:20px;
+      border-radius:10px;
+      max-width:400px;
+      width:90%;
+      text-align:left;
+    }
+    .modal-content h3 { margin-top:0; }
+    .modal-actions { margin-top:20px; text-align:right; }
+    .modal-actions button { margin-left:10px; }
+  </style>
 </head>
 <body>
   <div id="app">
@@ -12,12 +36,13 @@
       <h1>Linktory</h1>
       <div id="userBadge" class="badge">—</div>
     </header>
-    <div id="status" style="padding:8px; background:#f0f0f0; font-size:0.9em; color:#333;">
-  Checking Telegram login...
-</div>
 
+    <div id="status" style="padding:8px; background:#f0f0f0; font-size:0.9em; color:#333;">
+      Checking Telegram login...
+    </div>
 
     <main class="container">
+      <!-- Home Section -->
       <section id="home" class="page active" aria-hidden="false">
         <div class="card">
           <h2>Find or Add a Link</h2>
@@ -29,7 +54,6 @@
               <button id="reportBtn" type="button" class="btn warn">Report</button>
             </div>
           </form>
-
           <div id="result" class="result hidden" role="status"></div>
         </div>
 
@@ -48,6 +72,7 @@
         </div>
       </section>
 
+      <!-- Earn Section -->
       <section id="earn" class="page" aria-hidden="true">
         <div class="card">
           <h2>Tasks — Earn Points</h2>
@@ -55,6 +80,7 @@
         </div>
       </section>
 
+      <!-- Leaderboard Section -->
       <section id="leaderboard" class="page" aria-hidden="true">
         <div class="card">
           <h2>Leaderboard</h2>
@@ -65,6 +91,7 @@
         </div>
       </section>
 
+      <!-- Profile Section -->
       <section id="profile" class="page" aria-hidden="true">
         <div class="card">
           <h2>My Profile</h2>
@@ -78,14 +105,71 @@
       </section>
     </main>
 
+    <!-- Bottom Navigation -->
     <nav class="bottom-nav" role="navigation" aria-label="Main menu">
       <button class="menu-item active" data-target="home">Home</button>
       <button class="menu-item" data-target="earn">Earn</button>
       <button class="menu-item" data-target="leaderboard">Leaderboard</button>
       <button class="menu-item" data-target="profile">Profile</button>
     </nav>
+  </div>
+
+  <!-- Moderator Upgrade Modal -->
+  <div id="moderatorModal" class="modal-bg">
+    <div class="modal-content">
+      <h3>Upgrade to Moderator</h3>
+      <p>Pay <strong>1 TON</strong> to become a moderator and unlock these benefits:</p>
+      <ul>
+        <li>✅ Verify links submitted by users</li>
+        <li>✅ Earn extra points for each verified link</li>
+        <li>✅ Access the moderation dashboard</li>
+      </ul>
+      <div class="modal-actions">
+        <button id="cancelUpgrade" class="btn neutral">Cancel</button>
+        <button id="confirmUpgrade" class="btn primary">Pay & Upgrade</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="/webapp/app.js"></script>
+  <script type="module">
+    import { loadProfile } from '/webapp/app.js';
+
+    const modal = document.getElementById('moderatorModal');
+    const cancelBtn = document.getElementById('cancelUpgrade');
+    const confirmBtn = document.getElementById('confirmUpgrade');
+
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+      // Simulate TON payment
+      const paymentSuccess = confirm("Simulate payment of 1 TON?");
+      if (!paymentSuccess) return alert("Payment failed");
+
+      const telegramId = window.telegram_id || document.querySelector('#profileInput').value.trim();
+      const res = await fetch('/api/upgradeModerator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: telegramId })
+      }).then(r => r.json());
+
+      if (res.ok) {
+        alert("✅ You are now a moderator!");
+        modal.classList.remove('active');
+        loadProfile(telegramId);
+      } else {
+        alert(res.message || "Failed to upgrade");
+      }
+    });
+
+    // Intercept upgrade button in profile
+    document.addEventListener('click', e => {
+      if (e.target && e.target.id === 'upgradeModerator') {
+        modal.classList.add('active');
+      }
+    });
+  </script>
 </body>
 </html>
-
-
