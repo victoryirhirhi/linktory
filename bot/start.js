@@ -1,5 +1,6 @@
 // bot/start.js
 import { Markup } from "telegraf";
+import jwt from "jsonwebtoken";
 
 export function setupStart(bot, pool) {
   const webAppUrl = `${process.env.RENDER_EXTERNAL_URL || "https://example.com"}/webapp`;
@@ -30,12 +31,33 @@ export function setupStart(bot, pool) {
          ON CONFLICT (telegram_id) DO NOTHING`,
         [userId, username]
       );
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { telegram_id: userId, username },
+        process.env.JWT_SECRET,
+        { expiresIn: "30d" }
+      );
+
+      // Send WebApp link with token
+      await ctx.replyWithMarkdown(
+        `🚀 *Welcome to Linktory!*\n\nTap below to open the Mini App:`,
+        {
+          reply_markup: Markup.inlineKeyboard([
+            [
+              Markup.button.webApp("Open Linktory App", `${webAppUrl}?token=${token}`)
+            ]
+          ]).reply_markup
+        }
+      );
+
     } catch (e) {
       console.error("db insert user error:", e);
     }
 
+    // Also show main menu
     await ctx.replyWithMarkdown(
-      "🚀 *Welcome to Linktory!*\n\nTrack ✅ Verify ✅ Report ✅\n\nTap a feature below 👇",
+      "Tap a feature below 👇",
       { reply_markup: mainMenu.reply_markup }
     );
   });
