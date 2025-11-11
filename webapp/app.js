@@ -1,3 +1,6 @@
+// ---------------------------
+// Utility Selectors
+// ---------------------------
 const qs = (s, r = document) => r.querySelector(s);
 const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const apiBase = "/api";
@@ -5,33 +8,47 @@ const apiBase = "/api";
 let telegram_id = null;
 let username = null;
 
-// ✅ FIXED Telegram initialization
+// ---------------------------
+// ✅ Telegram Initialization (Improved)
+// ---------------------------
 async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
 
     if (!tg) {
-      console.warn("Not running inside Telegram WebApp");
+      console.warn("❌ Not running inside Telegram WebApp.");
       showGuest("Please open this app from Telegram.");
       return;
     }
 
-    tg.expand(); // Expand to full view inside Telegram
+    tg.expand();
     tg.ready();
 
-    // Try to get Telegram user
+    // Log Telegram object for debugging
+    console.log("🟢 Telegram WebApp detected:", tg);
+    console.log("InitData:", tg.initData);
+    console.log("InitDataUnsafe:", tg.initDataUnsafe);
+
+    // ✅ Use initDataUnsafe.user (Telegram provides this in WebApp)
     const user = tg.initDataUnsafe?.user;
-    if (!user) {
-      console.warn("No Telegram user detected");
+    if (!user || !user.id) {
+      console.warn("⚠️ No Telegram user detected. Possibly opened outside Telegram.");
       showGuest("Please open this from Telegram.");
       return;
     }
 
+    // ✅ Assign user data
     telegram_id = user.id;
     username = user.username || `u${telegram_id}`;
     qs("#userBadge").textContent = "@" + username;
 
-    // Register the user with backend
+    // Optional: live debug status
+    const status = qs("#status");
+    if (status) status.textContent = `✅ Logged in as @${username} (${telegram_id})`;
+
+    console.log("✅ Telegram user detected:", telegram_id, username);
+
+    // ✅ Register user (if not in DB, backend will handle that)
     await fetch(apiBase + "/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -39,20 +56,24 @@ async function initTelegram() {
     }).catch((e) => console.warn("register failed", e));
 
   } catch (e) {
-    console.error("initTelegram error:", e);
+    console.error("💥 initTelegram error:", e);
     showGuest("Please open this from Telegram.");
   }
 }
 
+// ---------------------------
+// Guest Mode
+// ---------------------------
 function showGuest(msg = "Guest mode: open in Telegram") {
   qs("#userBadge").textContent = "Guest";
   notify(msg, true);
+  const status = qs("#status");
+  if (status) status.textContent = `🚫 ${msg}`;
 }
 
 // ---------------------------
-// Utility and API functions
+// API Utility
 // ---------------------------
-
 async function api(path, opts = {}) {
   try {
     const res = await fetch(apiBase + path, {
@@ -66,6 +87,9 @@ async function api(path, opts = {}) {
   }
 }
 
+// ---------------------------
+// UI Helpers
+// ---------------------------
 function notify(msg, err = false) {
   const box = qs("#result");
   if (!box) return;
@@ -85,7 +109,6 @@ function showPage(id) {
 // ---------------------------
 // Link Actions
 // ---------------------------
-
 async function handleCheck() {
   const url = qs("#linkInput").value.trim();
   if (!url.startsWith("http")) return notify("Enter valid URL", true);
@@ -137,7 +160,6 @@ async function handleReport() {
 // ---------------------------
 // Data Loaders
 // ---------------------------
-
 async function loadRecentLinks() {
   const box = qs("#recentList");
   box.textContent = "Loading...";
@@ -211,7 +233,6 @@ function loadTasks() {
 // ---------------------------
 // Initialize everything
 // ---------------------------
-
 document.addEventListener("DOMContentLoaded", () => {
   initTelegram();
 
