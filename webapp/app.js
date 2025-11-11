@@ -149,7 +149,7 @@ async function loadRecentLinks() {
 
   box.innerHTML = res.rows
     .map(r => {
-      const status = r.verified ? "✅" : "❌";
+      const status = r.status === "verified" ? "✅" : "❌";
       return `<li>${status} <a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`;
     })
     .join("");
@@ -163,7 +163,9 @@ async function loadLeaderboard() {
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No contributors yet");
   box.innerHTML = res.rows
-    .map(r => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`)
+    .map(
+      (r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`
+    )
     .join("");
 }
 
@@ -185,9 +187,9 @@ function loadTasks() {
         <div class="task-meta">${t.points} pts</div>
       </div>
       <div>
-        <button data-task="${t.id}" class="btn ${
-        saved[t.id] ? "neutral" : "primary"
-      }">${saved[t.id] ? "Claimed" : "Claim"}</button>
+        <button data-task="${t.id}" class="btn ${saved[t.id] ? "neutral" : "primary"}">
+          ${saved[t.id] ? "Claimed" : "Claim"}
+        </button>
       </div>
     </li>`
     )
@@ -209,48 +211,50 @@ function loadTasks() {
 // ---------------------------
 // Profile Loader
 // ---------------------------
-async function loadProfile(telegramId) {
-  if (!telegramId) return notify("Enter a valid Telegram ID", true);
+async function loadProfile(id = telegram_id) {
+  if (!id) return notify("Cannot load profile, missing Telegram ID", true);
 
+  const res = await api(`/profile/${id}`);
+  if (!res.ok) return notify(res.message || "Failed to load profile", true);
+
+  const data = res.user;
   const box = qs("#profileData");
-  box.textContent = "Loading profile...";
   box.classList.remove("hidden");
-
-  const res = await api("/profile", {
-    method: "POST",
-    body: JSON.stringify({ telegram_id: telegramId }),
-  });
-
-  if (!res.ok) {
-    box.textContent = "Failed to load profile";
-    return;
-  }
-
   box.innerHTML = `
-    <p><strong>Username:</strong> ${res.username || telegramId}</p>
-    <p><strong>Total Links Added:</strong> ${res.total_links || 0}</p>
-    <p><strong>Verified Links:</strong> ${res.verified_links || 0}</p>
-    <p><strong>Total Points:</strong> ${res.points || 0}</p>
-    <p><strong>Role:</strong> ${res.is_moderator ? "Moderator" : "User"}</p>
+    <p><strong>Username:</strong> @${data.username || "—"}</p>
+    <p><strong>Points:</strong> ${data.points}</p>
+    <p><strong>Total Links Added:</strong> ${data.total_links}</p>
+    <p><strong>Verified Links:</strong> ${data.verified_links}</p>
+    <h4>Recent Links:</h4>
+    <ul>
+      ${data.recent_links
+        .map(
+          (l) =>
+            `<li>${l.status === "verified" ? "✅" : "❌"} <a href="${l.url}" target="_blank" rel="noreferrer">${l.url}</a></li>`
+        )
+        .join("")}
+    </ul>
     ${
-      !res.is_moderator
-        ? '<button id="migrateModerator" class="btn primary">Request Moderator</button>'
-        : ''
+      data.is_moderator
+        ? `<p>✅ You are a moderator</p>`
+        : data.moderator_request
+        ? `<p>⏳ Moderator request pending</p>`
+        : `<button id="requestModerator" class="btn primary">Request Moderator</button>`
     }
   `;
 
-  const migrateBtn = qs("#migrateModerator");
-  if (migrateBtn) {
-    migrateBtn.addEventListener("click", async () => {
-      const resp = await api("/migrateModerator", {
+  const btn = qs("#requestModerator");
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      const r = await api("/migrateModerator", {
         method: "POST",
-        body: JSON.stringify({ telegram_id: telegramId }),
+        body: JSON.stringify({ telegram_id }),
       });
-      if (resp.ok) {
-        notify("✅ Moderator request submitted");
-        loadProfile(telegramId); // reload profile
+      if (r.ok) {
+        notify("Moderator request submitted");
+        loadProfile();
       } else {
-        notify(resp.error || "Failed to request moderator", true);
+        notify(r.message || "Failed to request moderator", true);
       }
     });
   }
@@ -263,7 +267,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initTelegram();
 
   qsa(".menu-item").forEach((btn) =>
-    btn.addEventListener("click", () => showPage(btn.dataset.target))
+    btn.addEventListener("click", () => {
+      showPage(btn.dataset.target);
+      if (btn.dataset.target === "profile") loadProfile();
+    })
   );
 
   qs("#checkBtn").addEventListener("click", handleCheck);
@@ -271,13 +278,17 @@ document.addEventListener("DOMContentLoaded", () => {
   qs("#reportBtn").addEventListener("click", handleReport);
   qs("#refreshLeaderboard").addEventListener("click", loadLeaderboard);
 
-  qs("#profileLoad")?.addEventListener("click", () => {
-    const telegramId = qs("#profileInput").value.trim();
-    loadProfile(telegramId);
+  // Load profile by manual input
+  qs("#profileLoad").addEventListener("click", () => {
+    const id = qs("#profileInput").value.trim();
+    loadProfile(id);
   });
 
   showPage("home");
   loadRecentLinks();
   loadLeaderboard();
   loadTasks();
+
+  // Auto-load profile if user is logged in
+  if (telegram_id) loadProfile();
 });
