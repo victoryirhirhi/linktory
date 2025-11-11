@@ -6,36 +6,69 @@ const apiBase = "/api";
 let telegram_id = null;
 let username = null;
 
-// read Telegram WebApp user data and register server side
-function initTelegram() {
+// initTelegram verifies with server via /api/authInit (server will set session cookie)
+async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
     if (!tg) {
       showGuest();
       return;
     }
-    // prefer initDataUnsafe for immediate user info
-    const unsafe = tg.initDataUnsafe || {};
-    const user = unsafe.user || null;
-    if (!user) {
-      showGuest();
+
+    // Prefer the signed raw initData string
+    const initData = tg.initData || tg.initDataUnsafe?.initData || null;
+
+    if (!initData) {
+      // fallback to unsafe user info (no server verification)
+      const unsafe = tg.initDataUnsafe || {};
+      const user = unsafe.user || null;
+      if (!user) {
+        showGuest();
+        return;
+      }
+      telegram_id = user.id;
+      username = user.username || `u${telegram_id}`;
+      qs("#userBadge").textContent = "@" + username;
+      // best-effort register
+      fetch(apiBase + "/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegram_id, username })
+      }).catch(e => console.warn("register failed", e));
       return;
     }
 
-    telegram_id = user.id;
-    username = user.username || `u${telegram_id}`;
-
-    qs("#userBadge").textContent = "@" + username;
-
-    // register user with backend
-    fetch(apiBase + "/register", {
+    // Send signed initData to server, server verifies and sets cookie
+    const authRes = await fetch(apiBase + "/authInit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegram_id, username })
-    }).catch(e => {
-      // ignore register errors for UX
-      console.warn("register failed", e);
+      credentials: "include",
+      body: JSON.stringify({ initData })
     });
+
+    const authJson = await authRes.json().catch(() => ({ ok: false }));
+    if (!authJson.ok) {
+      // fallback: try unsafe user
+      const unsafe = tg.initDataUnsafe || {};
+      const user = unsafe.user || null;
+      if (!user) {
+        showGuest();
+        return;
+      }
+      telegram_id = user.id;
+      username = user.username || `u${telegram_id}`;
+      qs("#userBadge").textContent = "@" + username;
+      fetch(apiBase + "/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegram_id, username })
+      }).catch(e => console.warn("register failed", e));
+      return;
+    }
+
+    telegram_id = authJson.telegram_id;
+    username = authJson.username || `u${telegram_id}`;
+    qs("#userBadge").textContent = "@" + username;
   } catch (e) {
     console.warn("initTelegram error", e);
     showGuest();
@@ -46,11 +79,11 @@ function showGuest() {
   qs("#userBadge").textContent = "Guest";
 }
 
-// small helper
 async function api(path, opts = {}) {
   try {
     const res = await fetch(apiBase + path, {
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       ...opts
     });
     return await res.json().catch(() => ({}));
