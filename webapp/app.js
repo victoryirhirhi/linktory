@@ -1,4 +1,3 @@
-// utils
 const qs = (s, r = document) => r.querySelector(s);
 const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const apiBase = "/api";
@@ -6,58 +5,61 @@ const apiBase = "/api";
 let telegram_id = null;
 let username = null;
 
-// ✅ FIX: Reliable Telegram WebApp init
+// ✅ Telegram init + auto-login for existing users
 async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
-    if (!tg) {
-      console.warn("⚠️ Not inside Telegram WebApp");
-      showGuest("Please open this app from Telegram.");
-      return;
+
+    if (tg) {
+      tg.expand();
+      tg.ready();
+      const user = tg.initDataUnsafe?.user;
+      if (user) {
+        telegram_id = user.id;
+        username = user.username || `u${telegram_id}`;
+        qs("#userBadge").textContent = "@" + username;
+
+        // Register user if not exists
+        await fetch(apiBase + "/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ telegram_id, username }),
+        }).catch((e) => console.warn("register failed", e));
+
+        return;
+      }
     }
 
-    // Ensure WebApp fully initializes
-    tg.ready();
-    tg.expand();
-
-    // Wait for Telegram init data
-    const user = tg.initDataUnsafe?.user;
-    if (!user || !user.id) {
-      console.warn("⚠️ No Telegram user detected:", tg.initDataUnsafe);
-      showGuest("Please open this from Telegram.");
-      return;
-    }
-
-    // ✅ We got the Telegram user
-    telegram_id = user.id;
-    username = user.username || `user${telegram_id}`;
-    qs("#userBadge").textContent = "@" + username;
-
-    // Optional: confirm Telegram init visually
-    console.log("✅ Telegram WebApp user:", user);
-
-    // ✅ Register the user with backend
-    const registerRes = await fetch(`${apiBase}/register`, {
-      method: "POST",
+    // Fallback: check if user already exists in DB via session
+    const res = await fetch(apiBase + "/session", {
+      method: "GET",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegram_id, username }),
     });
-    const data = await registerRes.json().catch(() => ({}));
-    if (!data.ok) console.warn("⚠️ register failed", data);
+    const data = await res.json();
+    if (data.ok && data.telegram_id) {
+      telegram_id = data.telegram_id;
+      username = data.username || `u${telegram_id}`;
+      qs("#userBadge").textContent = "@" + username;
+      return;
+    }
+
+    // Fallback: Guest mode
+    showGuest("Please open this app from Telegram or log in via bot.");
 
   } catch (e) {
-    console.error("❌ initTelegram error:", e);
-    showGuest("Please open this from Telegram.");
+    console.error("initTelegram error:", e);
+    showGuest("Please open this app from Telegram.");
   }
 }
 
-function showGuest(msg = "Guest mode: open in Telegram") {
+function showGuest(msg = "Guest mode") {
   qs("#userBadge").textContent = "Guest";
   notify(msg, true);
 }
 
 // ---------------------------
-// Utility and API helpers
+// API utility
 // ---------------------------
 async function api(path, opts = {}) {
   try {
@@ -67,7 +69,7 @@ async function api(path, opts = {}) {
       ...opts,
     });
     return await res.json().catch(() => ({}));
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Network error" };
   }
 }
@@ -94,10 +96,12 @@ function showPage(id) {
 async function handleCheck() {
   const url = qs("#linkInput").value.trim();
   if (!url.startsWith("http")) return notify("Enter valid URL", true);
+
   const res = await api("/checkLink", {
     method: "POST",
     body: JSON.stringify({ url }),
   });
+
   if (!res.ok) return notify(res.message || res.error || "Failed", true);
   notify(res.exists ? "Link found" : "No record, add it");
 }
@@ -105,19 +109,15 @@ async function handleCheck() {
 async function handleAdd() {
   const url = qs("#linkInput").value.trim();
   if (!url.startsWith("http")) return notify("Enter valid URL", true);
-  if (!telegram_id) {
-    console.warn("telegram_id missing, forcing Telegram init retry...");
-    await initTelegram();
-    if (!telegram_id) return notify("Open this app from Telegram.", true);
-  }
+  if (!telegram_id) return notify("Open the app from Telegram to add links", true);
 
   const res = await api("/addLink", {
     method: "POST",
     body: JSON.stringify({ url, telegram_id }),
   });
-  if (!res.ok) return notify(res.message || res.error || "Failed", true);
 
-  notify(res.added ? "✅ Link added" : res.message || "Already exists");
+  if (!res.ok) return notify(res.message || res.error || "Failed", true);
+  notify(res.added ? "Added" : res.message || "Already exists");
   await loadRecentLinks();
   await loadLeaderboard();
   qs("#linkInput").value = "";
@@ -126,10 +126,7 @@ async function handleAdd() {
 async function handleReport() {
   const url = qs("#linkInput").value.trim();
   if (!url.startsWith("http")) return notify("Enter valid URL", true);
-  if (!telegram_id) {
-    await initTelegram();
-    if (!telegram_id) return notify("Open the app from Telegram to report", true);
-  }
+  if (!telegram_id) return notify("Open the app from Telegram to report", true);
 
   const reason = window.prompt("Why are you reporting?");
   if (!reason) return;
@@ -145,16 +142,17 @@ async function handleReport() {
 }
 
 // ---------------------------
-// Data loaders
+// Loaders
 // ---------------------------
 async function loadRecentLinks() {
   const box = qs("#recentList");
   box.textContent = "Loading...";
   const res = await api("/recent");
   if (!res.ok) return (box.textContent = "Failed to load");
-  if (!res.rows?.length) return (box.textContent = "No links yet");
+  if (!Array.isArray(res.rows) || res.rows.length === 0)
+    return (box.textContent = "No links yet");
   box.innerHTML = res.rows
-    .map((r) => `<li><a href="${r.url}" target="_blank">${r.url}</a></li>`)
+    .map((r) => `<li><a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`)
     .join("");
 }
 
@@ -163,15 +161,13 @@ async function loadLeaderboard() {
   box.textContent = "Loading...";
   const res = await api("/leaderboard");
   if (!res.ok) return (box.textContent = "Failed");
-  if (!res.rows?.length) return (box.textContent = "No contributors yet");
+  if (!Array.isArray(res.rows) || res.rows.length === 0)
+    return (box.textContent = "No contributors yet");
   box.innerHTML = res.rows
     .map((r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`)
     .join("");
 }
 
-// ---------------------------
-// Local tasks (UI only)
-// ---------------------------
 function loadTasks() {
   const list = qs("#taskList");
   if (!list) return;
@@ -194,7 +190,8 @@ function loadTasks() {
         saved[t.id] ? "neutral" : "primary"
       }">${saved[t.id] ? "Claimed" : "Claim"}</button>
       </div>
-    </li>`
+    </li>
+  `
     )
     .join("");
 
@@ -212,10 +209,10 @@ function loadTasks() {
 }
 
 // ---------------------------
-// Init everything
+// Initialize
 // ---------------------------
-document.addEventListener("DOMContentLoaded", async () => {
-  await initTelegram();
+document.addEventListener("DOMContentLoaded", () => {
+  initTelegram();
 
   qsa(".menu-item").forEach((btn) =>
     btn.addEventListener("click", () => showPage(btn.dataset.target))
@@ -226,7 +223,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   qs("#refreshLeaderboard").addEventListener("click", loadLeaderboard);
 
   showPage("home");
-  await loadRecentLinks();
-  await loadLeaderboard();
+  loadRecentLinks();
+  loadLeaderboard();
   loadTasks();
 });
