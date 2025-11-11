@@ -1,4 +1,3 @@
-// routes/api.js
 import express from "express";
 import { pool } from "../config/db.js";
 import { randomUUID } from "crypto";
@@ -6,23 +5,21 @@ import { randomUUID } from "crypto";
 const router = express.Router();
 
 function hideShortCode(linkRow) {
-  // Remove short_code before returning to public clients
   const { short_code, ...rest } = linkRow;
   return rest;
 }
 
-/**
- * POST /api/register
- */
+// POST /api/register
+// Body: { telegram_id, username }
 router.post("/register", async (req, res) => {
   try {
     const { telegram_id, username } = req.body;
     if (!telegram_id) return res.status(400).json({ ok: false, message: "Missing telegram_id" });
 
     await pool.query(
-      `INSERT INTO users (telegram_id, username, points, trust_score)
-       VALUES ($1, $2, 0, 100)
-       ON CONFLICT (telegram_id) DO NOTHING`,
+      `INSERT INTO users (telegram_id, username, points, trust_score, created_at)
+       VALUES ($1, $2, 0, 100, now())
+       ON CONFLICT (telegram_id) DO UPDATE SET username = EXCLUDED.username`,
       [telegram_id, username || null]
     );
 
@@ -31,18 +28,15 @@ router.post("/register", async (req, res) => {
       [telegram_id]
     );
 
-    res.json({ ok: true, user: r.rows[0] });
+    return res.json({ ok: true, user: r.rows[0] });
   } catch (e) {
     console.error("register error:", e);
-    res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
-/**
- * POST /api/checkLink
- * Body: { url }
- * Returns exists true/false and link info if exists (short_code hidden)
- */
+// POST /api/checkLink
+// Body: { url }
 router.post("/checkLink", async (req, res) => {
   try {
     const { url } = req.body;
@@ -71,15 +65,14 @@ router.post("/checkLink", async (req, res) => {
       )
     ).rows;
 
-    // hide short_code (we didn't fetch it, but we intentionally omit)
-    res.json({ ok: true, exists: true, link, reports, confirmations });
+    return res.json({ ok: true, exists: true, link, reports, confirmations });
   } catch (e) {
     console.error("checkLink error:", e);
-    res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
-// ✅ GET /api/recent - recent added links
+// GET /api/recent
 router.get("/recent", async (req, res) => {
   try {
     const result = await pool.query(
@@ -88,7 +81,6 @@ router.get("/recent", async (req, res) => {
        ORDER BY created_at DESC
        LIMIT 10`
     );
-
     return res.json({ ok: true, rows: result.rows });
   } catch (err) {
     console.error("recent error:", err);
@@ -96,108 +88,106 @@ router.get("/recent", async (req, res) => {
   }
 });
 
-
-/**
- * POST /api/addLink
- * Body: { url, telegram_id }
- * Adds link if not exists. Awards 5 points to submitter.
- * NOTE: short_code is generated and stored, but NOT returned to user.
- */
+// POST /api/addLink
+// Body: { url, telegram_id }
 router.post("/addLink", async (req, res) => {
   try {
     const { url, telegram_id } = req.body;
     if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
+
+    // enforce authenticated user
+    if (!telegram_id) {
+      return res.status(401).json({ ok: false, message: "Authentication required. Open app from Telegram." });
+    }
+
+    // ensure user exists
+    await pool.query(
+      `INSERT INTO users (telegram_id, username, points, trust_score, created_at)
+       VALUES ($1, NULL, 0, 100, now())
+       ON CONFLICT (telegram_id) DO NOTHING`,
+      [telegram_id]
+    );
 
     const exists = await pool.query("SELECT id, url, status, created_at FROM links WHERE url=$1", [url]);
     if (exists.rowCount > 0) {
       return res.json({ ok: true, added: false, message: "Already exists", link: exists.rows[0] });
     }
 
-    // generate 6-hex style code: use randomUUID and take first 6 hex chars
     const shortCode = randomUUID().replace(/-/g, "").slice(0, 6);
 
+    // submitted_by must be NOT NULL in DB so pass telegram_id
     const insert = await pool.query(
       `INSERT INTO links (url, status, short_code, submitted_by, created_at)
        VALUES ($1, 'pending', $2, $3, now())
        RETURNING id, url, status, created_at`,
-      [url, shortCode, telegram_id || null]
+      [url, shortCode, telegram_id]
     );
 
-    // award points (5)
-    if (telegram_id) {
-      await pool.query(
-        "INSERT INTO users (telegram_id, username, points, trust_score) VALUES ($1, NULL, 0, 100) ON CONFLICT (telegram_id) DO NOTHING",
-        [telegram_id]
-      );
-      await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
-    }
+    // award points
+    await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
 
-    const out = insert.rows[0]; // intentionally DOES NOT include short_code
-    res.json({ ok: true, added: true, link: out });
+    const out = insert.rows[0];
+    return res.json({ ok: true, added: true, link: out });
   } catch (e) {
     console.error("addLink error:", e);
-    res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
-/**
- * POST /api/report
- * Body: { url, reason, telegram_id }
- * Creates report row and link if missing. Awards 5 points to reporter.
- */
+// POST /api/report
+// Body: { url, reason, telegram_id }
 router.post("/report", async (req, res) => {
   try {
     const { url, reason, telegram_id } = req.body;
     if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
+
+    if (!telegram_id) {
+      return res.status(401).json({ ok: false, message: "Authentication required. Open app from Telegram." });
+    }
+
+    await pool.query(
+      `INSERT INTO users (telegram_id, username, points, trust_score, created_at)
+       VALUES ($1, NULL, 0, 100, now())
+       ON CONFLICT (telegram_id) DO NOTHING`,
+      [telegram_id]
+    );
 
     let linkRow = (await pool.query("SELECT id FROM links WHERE url=$1", [url])).rows[0];
     if (!linkRow) {
       const shortCode = randomUUID().replace(/-/g, "").slice(0, 6);
       const ins = await pool.query(
         "INSERT INTO links (url, status, short_code, submitted_by, created_at) VALUES ($1,'pending',$2,$3,now()) RETURNING id",
-        [url, shortCode, telegram_id || null]
+        [url, shortCode, telegram_id]
       );
       linkRow = ins.rows[0];
     }
 
     await pool.query(
       "INSERT INTO reports (link_id, reason, reported_by, created_at) VALUES ($1,$2,$3,now())",
-      [linkRow.id, reason || null, telegram_id || null]
+      [linkRow.id, reason || null, telegram_id]
     );
 
-    // award reporter points (5)
-    if (telegram_id) {
-      await pool.query(
-        "INSERT INTO users (telegram_id, username, points, trust_score) VALUES ($1, NULL, 0, 100) ON CONFLICT (telegram_id) DO NOTHING",
-        [telegram_id]
-      );
-      await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
-    }
+    await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
 
-    res.json({ ok: true, message: "Report submitted" });
+    return res.json({ ok: true, message: "Report submitted" });
   } catch (e) {
     console.error("report error:", e);
-    res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
-/**
- * GET /api/leaderboard
- */
+// GET /api/leaderboard
 router.get("/leaderboard", async (req, res) => {
   try {
     const r = await pool.query("SELECT username, telegram_id, points, trust_score FROM users ORDER BY points DESC LIMIT 20");
-    res.json({ ok: true, rows: r.rows });
+    return res.json({ ok: true, rows: r.rows });
   } catch (e) {
     console.error("leaderboard error:", e);
-    res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
-/**
- * GET /api/profile/:id
- * Returns user + their links (short_code hidden in link list)
- */
+// GET /api/profile/:id
 router.get("/profile/:id", async (req, res) => {
   try {
     const id = req.params.id;
@@ -209,12 +199,11 @@ router.get("/profile/:id", async (req, res) => {
       [id]
     )).rows;
 
-    res.json({ ok: true, user: r.rows[0], links });
+    return res.json({ ok: true, user: r.rows[0], links });
   } catch (e) {
     console.error("profile error:", e);
-    res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
 export default router;
-
