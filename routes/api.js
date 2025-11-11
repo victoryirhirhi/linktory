@@ -6,34 +6,25 @@ import { randomUUID } from "crypto";
 
 const router = express.Router();
 
-/**
- * Helper: verify Telegram initData string.
- * Accepts the raw initData string (e.g. window.Telegram.WebApp.initData).
- * Returns true if HMAC matches.
- */
+// ---------------------------
+// Telegram initData verification
+// ---------------------------
 function verifyTelegramInitData(initDataString) {
   try {
     if (!initDataString || typeof initDataString !== "string") return false;
-
-    // Parse query-string style input into key->value
     const params = new URLSearchParams(initDataString);
     const hash = params.get("hash");
     if (!hash) return false;
 
-    // Build data_check_string: sort keys (except hash) lexicographically
     const dataPairs = [];
     for (const [k, v] of params.entries()) {
       if (k === "hash") continue;
-      // Use the raw value (decoded)
       dataPairs.push([k, v]);
     }
     dataPairs.sort((a, b) => a[0].localeCompare(b[0]));
     const dataCheckString = dataPairs.map(([k, v]) => `${k}=${v}`).join("\n");
-
-    // Secret key: SHA256(bot_token) as raw bytes
     const secretKey = crypto.createHash("sha256").update(process.env.BOT_TOKEN || "").digest();
     const hmac = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
-
     return hmac === hash;
   } catch (e) {
     console.error("verifyTelegramInitData error:", e);
@@ -41,10 +32,11 @@ function verifyTelegramInitData(initDataString) {
   }
 }
 
-// JWT cookie name
+// ---------------------------
+// Session JWT cookie
+// ---------------------------
 const SESSION_COOKIE_NAME = "linktory_session";
 
-// Create JWT and set cookie
 function createSessionCookie(res, payload) {
   const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "30d" });
   const secure = process.env.NODE_ENV === "production";
@@ -56,66 +48,46 @@ function createSessionCookie(res, payload) {
   });
 }
 
-// Auth middleware: attach req.user if cookie present
 function authMiddleware(req, res, next) {
   try {
     const token = req.cookies?.[SESSION_COOKIE_NAME];
     if (!token) return next();
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    if (payload && payload.telegram_id) {
-      req.user = { telegram_id: payload.telegram_id };
-    }
+    if (payload && payload.telegram_id) req.user = { telegram_id: payload.telegram_id };
   } catch (e) {
-    // ignore invalid token
     req.user = null;
   }
   return next();
 }
 
-/* -------------------------
-   Public routes (no cookie needed)
-   ------------------------- */
-
-// POST /api/authInit
-// Body: { initData }  (the string from window.Telegram.WebApp.initData)
+// ---------------------------
+// Public routes
+// ---------------------------
 router.post("/authInit", async (req, res) => {
   try {
     const { initData } = req.body;
     if (!initData) return res.status(400).json({ ok: false, message: "Missing initData" });
 
-    const valid = verifyTelegramInitData(initData);
-    if (!valid) return res.status(401).json({ ok: false, message: "Invalid initData" });
+    if (!verifyTelegramInitData(initData)) return res.status(401).json({ ok: false, message: "Invalid initData" });
 
-    // Parse user info from initData (user may be JSON-encoded)
     const params = new URLSearchParams(initData);
     let telegram_id = null;
     let username = null;
 
-    // Telegram sometimes sends 'user' param as JSON encoded
     const userParam = params.get("user");
     if (userParam) {
       try {
         const userObj = JSON.parse(userParam);
         telegram_id = userObj.id;
         username = userObj.username || `${userObj.first_name || ""}${userObj.last_name ? " " + userObj.last_name : ""}`.trim();
-      } catch (e) {
-        // ignore
-      }
+      } catch {}
     }
 
-    // fallback to other params if present
-    if (!telegram_id) {
-      telegram_id = params.get("id") || null;
-    }
-    if (!username) {
-      username = params.get("username") || null;
-    }
+    if (!telegram_id) telegram_id = params.get("id");
+    if (!username) username = params.get("username");
 
-    if (!telegram_id) {
-      return res.status(400).json({ ok: false, message: "No user id found in initData" });
-    }
+    if (!telegram_id) return res.status(400).json({ ok: false, message: "No user id found in initData" });
 
-    // Upsert user row
     await pool.query(
       `INSERT INTO users (telegram_id, username, points, trust_score, created_at)
        VALUES ($1, $2, 0, 100, now())
@@ -123,9 +95,7 @@ router.post("/authInit", async (req, res) => {
       [telegram_id, username || null]
     );
 
-    // create session cookie
     createSessionCookie(res, { telegram_id });
-
     return res.json({ ok: true, telegram_id, username: username || null });
   } catch (e) {
     console.error("authInit error:", e);
@@ -133,7 +103,7 @@ router.post("/authInit", async (req, res) => {
   }
 });
 
-// POST /api/register (keeps prior behavior)
+// POST /api/register
 router.post("/register", async (req, res) => {
   try {
     const { telegram_id, username } = req.body;
@@ -150,7 +120,6 @@ router.post("/register", async (req, res) => {
       "SELECT telegram_id, username, points, trust_score FROM users WHERE telegram_id=$1",
       [telegram_id]
     );
-
     return res.json({ ok: true, user: r.rows[0] });
   } catch (e) {
     console.error("register error:", e);
@@ -158,79 +127,16 @@ router.post("/register", async (req, res) => {
   }
 });
 
-/* -------------------------
-   Protected routes (use authMiddleware)
-   ------------------------- */
+// Protected routes
 router.use(authMiddleware);
 
-// Helpers
-function hideShortCode(linkRow) {
-  const { short_code, ...rest } = linkRow;
-  return rest;
-}
-
-// POST /api/checkLink
-router.post("/checkLink", async (req, res) => {
-  try {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
-
-    const r = await pool.query(
-      "SELECT id, url, status, submitted_by, created_at FROM links WHERE url = $1",
-      [url]
-    );
-
-    if (r.rowCount === 0) return res.json({ ok: true, exists: false });
-
-    const link = r.rows[0];
-
-    const reports = (
-      await pool.query(
-        "SELECT id, reason, reported_by, created_at FROM reports WHERE link_id=$1 ORDER BY created_at DESC",
-        [link.id]
-      )
-    ).rows;
-
-    const confirmations = (
-      await pool.query(
-        "SELECT id, user_id, confirmation, created_at FROM confirmations WHERE link_id=$1 ORDER BY created_at DESC",
-        [link.id]
-      )
-    ).rows;
-
-    return res.json({ ok: true, exists: true, link, reports, confirmations });
-  } catch (e) {
-    console.error("checkLink error:", e);
-    return res.status(500).json({ ok: false, message: "Server error" });
-  }
-});
-
-// GET /api/recent
-router.get("/recent", async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT id, url, status, created_at
-       FROM links
-       ORDER BY created_at DESC
-       LIMIT 10`
-    );
-    return res.json({ ok: true, rows: result.rows });
-  } catch (err) {
-    console.error("recent error:", err);
-    return res.json({ ok: false, error: "Failed to load recent links" });
-  }
-});
-
 // POST /api/addLink
-// Body: { url, telegram_id (optional) }
-// Prefer req.user.telegram_id (from cookie)
 router.post("/addLink", async (req, res) => {
   try {
     const { url } = req.body;
     const telegram_id = (req.user && req.user.telegram_id) || req.body.telegram_id;
-
     if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
-    if (!telegram_id) return res.status(401).json({ ok: false, message: "Authentication required. Open app from Telegram." });
+    if (!telegram_id) return res.status(401).json({ ok: false, message: "Open the app from Telegram" });
 
     await pool.query(
       `INSERT INTO users (telegram_id, username, points, trust_score, created_at)
@@ -240,9 +146,7 @@ router.post("/addLink", async (req, res) => {
     );
 
     const exists = await pool.query("SELECT id, url, status, created_at FROM links WHERE url=$1", [url]);
-    if (exists.rowCount > 0) {
-      return res.json({ ok: true, added: false, message: "Already exists", link: exists.rows[0] });
-    }
+    if (exists.rowCount > 0) return res.json({ ok: true, added: false, message: "Already exists", link: exists.rows[0] });
 
     const shortCode = randomUUID().replace(/-/g, "").slice(0, 6);
 
@@ -254,9 +158,7 @@ router.post("/addLink", async (req, res) => {
     );
 
     await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
-
-    const out = insert.rows[0];
-    return res.json({ ok: true, added: true, link: out });
+    return res.json({ ok: true, added: true, link: insert.rows[0] });
   } catch (e) {
     console.error("addLink error:", e);
     return res.status(500).json({ ok: false, message: "Server error" });
@@ -268,9 +170,8 @@ router.post("/report", async (req, res) => {
   try {
     const { url, reason } = req.body;
     const telegram_id = (req.user && req.user.telegram_id) || req.body.telegram_id;
-
     if (!url) return res.status(400).json({ ok: false, message: "Missing url" });
-    if (!telegram_id) return res.status(401).json({ ok: false, message: "Authentication required. Open app from Telegram." });
+    if (!telegram_id) return res.status(401).json({ ok: false, message: "Open the app from Telegram" });
 
     await pool.query(
       `INSERT INTO users (telegram_id, username, points, trust_score, created_at)
@@ -295,7 +196,6 @@ router.post("/report", async (req, res) => {
     );
 
     await pool.query("UPDATE users SET points = points + 5 WHERE telegram_id=$1", [telegram_id]);
-
     return res.json({ ok: true, message: "Report submitted" });
   } catch (e) {
     console.error("report error:", e);
@@ -314,21 +214,69 @@ router.get("/leaderboard", async (req, res) => {
   }
 });
 
-// GET /api/profile/:id
-router.get("/profile/:id", async (req, res) => {
+// ---------------------------
+// Profile route (expanded)
+// ---------------------------
+router.post("/profile", async (req, res) => {
   try {
-    const id = req.params.id;
-    const r = await pool.query("SELECT telegram_id, username, points, trust_score, created_at FROM users WHERE telegram_id=$1", [id]);
-    if (r.rowCount === 0) return res.json({ ok: false, message: "No user" });
+    const { telegram_id } = req.body;
+    if (!telegram_id) return res.status(400).json({ ok: false, message: "Missing telegram_id" });
 
-    const links = (await pool.query(
-      "SELECT id, url, status, created_at FROM links WHERE submitted_by=$1 ORDER BY created_at DESC LIMIT 20",
-      [id]
-    )).rows;
+    const userRes = await pool.query(
+      "SELECT username, points, trust_score, is_moderator, moderator_request FROM users WHERE telegram_id=$1",
+      [telegram_id]
+    );
+    if (userRes.rowCount === 0) return res.json({ ok: false, message: "User not found" });
 
-    return res.json({ ok: true, user: r.rows[0], links });
+    const user = userRes.rows[0];
+
+    const linksRes = await pool.query(
+      "SELECT COUNT(*) AS total, SUM(CASE WHEN status='verified' THEN 1 ELSE 0 END) AS verified FROM links WHERE submitted_by=$1",
+      [telegram_id]
+    );
+
+    const total_links = parseInt(linksRes.rows[0].total) || 0;
+    const verified_links = parseInt(linksRes.rows[0].verified) || 0;
+
+    // Recent 10 links
+    const recentLinksRes = await pool.query(
+      "SELECT id, url, status, created_at FROM links WHERE submitted_by=$1 ORDER BY created_at DESC LIMIT 10",
+      [telegram_id]
+    );
+
+    return res.json({
+      ok: true,
+      user: {
+        username: user.username,
+        points: user.points,
+        trust_score: user.trust_score,
+        is_moderator: user.is_moderator,
+        moderator_request: user.moderator_request,
+        total_links,
+        verified_links,
+        recent_links: recentLinksRes.rows
+      }
+    });
   } catch (e) {
     console.error("profile error:", e);
+    return res.status(500).json({ ok: false, message: "Server error" });
+  }
+});
+
+// POST /api/migrateModerator
+router.post("/migrateModerator", async (req, res) => {
+  try {
+    const { telegram_id } = req.body;
+    if (!telegram_id) return res.status(400).json({ ok: false, message: "Missing telegram_id" });
+
+    const userRes = await pool.query("SELECT is_moderator, moderator_request FROM users WHERE telegram_id=$1", [telegram_id]);
+    if (userRes.rowCount === 0) return res.json({ ok: false, message: "User not found" });
+    if (userRes.rows[0].is_moderator) return res.json({ ok: false, message: "Already a moderator" });
+
+    await pool.query("UPDATE users SET moderator_request=TRUE WHERE telegram_id=$1", [telegram_id]);
+    return res.json({ ok: true, message: "Moderator request submitted" });
+  } catch (e) {
+    console.error("migrateModerator error:", e);
     return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
