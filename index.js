@@ -1,11 +1,11 @@
 import express from "express";
-import cookieParser from "cookie-parser";
 import { Telegraf } from "telegraf";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { pool } from "./config/db.js";
 import { setupBot } from "./bot/index.js";
+import { setupDashboard } from "./dashboard/index.js";
 import apiRoutes from "./routes/api.js";
 
 dotenv.config();
@@ -21,34 +21,40 @@ if (!process.env.BOT_TOKEN || !process.env.DATABASE_URL || !process.env.JWT_SECR
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const app = express();
 app.use(express.json());
-app.use(cookieParser());
 
-// Setup bot (handlers) - optional additional setup inside ./bot
+// Setup bot + dashboard
 setupBot(bot, pool);
+setupDashboard(app, pool);
 
-// Serve webapp static files
-app.use("/webapp", express.static(path.join(__dirname, "webapp")));
-
-// Mount API routes
+// ✅ API routes connected for mini app
 app.use("/api", apiRoutes);
 
-// Webhook config (mount webhook middleware on /webhook)
+// ✅ Serve static Telegram Mini App files
+app.use("/webapp", express.static(path.join(__dirname, "webapp")));
+
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_PATH = "/webhook";
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `https://linktory.onrender.com`;
 const webhookUrl = `${RENDER_URL}${WEBHOOK_PATH}`;
 
-app.use(WEBHOOK_PATH, bot.webhookCallback(WEBHOOK_PATH));
+// ✅ Webhook endpoint
+app.use(bot.webhookCallback(WEBHOOK_PATH));
 
-(async () => {
+// Root route
+app.get("/", (req, res) => {
+  res.send("🚀 Linktory Bot + Mini App running in Webhook Mode!");
+});
+
+// ✅ Start the server first, THEN set the webhook
+app.listen(PORT, async () => {
+  console.log(`⚡ Server running on port ${PORT}`);
+
   try {
+    // clear old webhooks first
+    await bot.telegram.deleteWebhook();
     await bot.telegram.setWebhook(webhookUrl);
     console.log(`✅ Webhook set to: ${webhookUrl}`);
   } catch (err) {
-    console.error("❌ Failed to set webhook:", err?.description || err);
+    console.error("❌ Failed to set webhook:", err.response?.description || err.message);
   }
-})();
-
-app.get("/", (req, res) => res.send("🚀 Linktory Bot + Mini App running in Webhook Mode!"));
-
-app.listen(PORT, () => console.log(`⚡ Server running on port ${PORT}`));
+});
