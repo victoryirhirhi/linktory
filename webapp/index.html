@@ -14,7 +14,6 @@
     </header>
 
     <main class="container">
-      <!-- Home / Links merged -->
       <section id="home" class="page active" aria-hidden="false">
         <div class="card">
           <h2>Find or Add a Link</h2>
@@ -45,20 +44,13 @@
         </div>
       </section>
 
-      <!-- Earn (detailed page) -->
       <section id="earn" class="page" aria-hidden="true">
         <div class="card">
           <h2>Tasks — Earn Points</h2>
-          <ul id="taskList" class="task-list">
-            <!-- Populated by JS -->
-          </ul>
-          <div style="margin-top:12px;color:var(--muted);font-size:13px">
-            Complete tasks to earn points. Some tasks are auto-detected (when used in Telegram webapp).
-          </div>
+          <ul id="taskList" class="task-list"></ul>
         </div>
       </section>
 
-      <!-- Leaderboard -->
       <section id="leaderboard" class="page" aria-hidden="true">
         <div class="card">
           <h2>Leaderboard</h2>
@@ -69,7 +61,6 @@
         </div>
       </section>
 
-      <!-- Profile -->
       <section id="profile" class="page" aria-hidden="true">
         <div class="card">
           <h2>My Profile</h2>
@@ -89,10 +80,6 @@
       <button class="menu-item" data-target="leaderboard">Leaderboard</button>
       <button class="menu-item" data-target="profile">Profile</button>
     </nav>
-
-   
-
   <script type="module" src="/webapp/app.js"></script>
 </body>
 </html>
-
