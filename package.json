@@ -1,19 +1,27 @@
 {
   "name": "linktory",
   "version": "1.0.0",
+  "description": "Linktory Telegram bot + mini app",
   "main": "index.js",
   "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
   "dependencies": {
     "cookie-parser": "^1.4.7",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.16.3",
-    "telegraf": "^4.16.3"
+    "telegraf": "^4.16.3",
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "path": "^0.12.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.x"
   }
-  
-  "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
-  }
-
 }
-
