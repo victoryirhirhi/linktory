@@ -5,7 +5,9 @@ const apiBase = "/api";
 let telegram_id = null;
 let username = null;
 
-// ✅ Telegram initialization + token fallback
+// ---------------------------
+// Telegram initialization + token fallback
+// ---------------------------
 async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
@@ -21,6 +23,7 @@ async function initTelegram() {
         telegram_id = data.telegram_id;
         username = data.username;
         qs("#userBadge").textContent = "@" + username;
+        qs("#status").textContent = ""; // clear login status
         return;
       }
     }
@@ -35,6 +38,7 @@ async function initTelegram() {
     telegram_id = user.id;
     username = user.username || `u${telegram_id}`;
     qs("#userBadge").textContent = "@" + username;
+    qs("#status").textContent = ""; // clear login status
 
   } catch (e) {
     console.error("initTelegram error", e);
@@ -44,6 +48,7 @@ async function initTelegram() {
 
 function showGuest(msg = "Guest mode: open in Telegram") {
   qs("#userBadge").textContent = "Guest";
+  qs("#status").textContent = msg;
   notify(msg, true);
 }
 
@@ -92,7 +97,8 @@ async function handleCheck() {
   });
 
   if (!res.ok) return notify(res.message || res.error || "Failed", true);
-  notify(res.exists ? "Link found" : "No record, add it");
+  const status = res.exists ? "✅ Link found" : "❌ No record, add it";
+  notify(status);
 }
 
 async function handleAdd() {
@@ -106,7 +112,7 @@ async function handleAdd() {
   });
 
   if (!res.ok) return notify(res.message || res.error || "Failed", true);
-  notify(res.added ? "Added" : res.message || "Already exists");
+  notify(res.added ? "✅ Added" : res.message || "Already exists");
   await loadRecentLinks();
   await loadLeaderboard();
   qs("#linkInput").value = "";
@@ -126,7 +132,7 @@ async function handleReport() {
   });
 
   if (!res.ok) return notify(res.message || res.error || "Failed", true);
-  notify("Report submitted");
+  notify("✅ Report submitted");
   await loadLeaderboard();
 }
 
@@ -140,11 +146,13 @@ async function loadRecentLinks() {
   if (!res.ok) return (box.textContent = "Failed to load");
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No links yet");
+
+  // Show verification status
   box.innerHTML = res.rows
-    .map(
-      (r) =>
-        `<li><a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`
-    )
+    .map(r => {
+      const status = r.verified ? "✅" : "❌";
+      return `<li>${status} <a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`;
+    })
     .join("");
 }
 
@@ -157,8 +165,7 @@ async function loadLeaderboard() {
     return (box.textContent = "No contributors yet");
   box.innerHTML = res.rows
     .map(
-      (r) =>
-        `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`
+      (r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`
     )
     .join("");
 }
@@ -175,7 +182,6 @@ function loadTasks() {
   list.innerHTML = tasks
     .map(
       (t) => `
-
     <li>
       <div>
         <div class="task-title">${t.title}</div>
@@ -186,8 +192,7 @@ function loadTasks() {
         saved[t.id] ? "neutral" : "primary"
       }">${saved[t.id] ? "Claimed" : "Claim"}</button>
       </div>
-    </li>
-  `
+    </li>`
     )
     .join("");
 
