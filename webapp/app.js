@@ -147,7 +147,6 @@ async function loadRecentLinks() {
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No links yet");
 
-  // Show verification status
   box.innerHTML = res.rows
     .map(r => {
       const status = r.verified ? "✅" : "❌";
@@ -164,9 +163,7 @@ async function loadLeaderboard() {
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No contributors yet");
   box.innerHTML = res.rows
-    .map(
-      (r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`
-    )
+    .map(r => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`)
     .join("");
 }
 
@@ -210,6 +207,56 @@ function loadTasks() {
 }
 
 // ---------------------------
+// Profile Loader
+// ---------------------------
+async function loadProfile(telegramId) {
+  if (!telegramId) return notify("Enter a valid Telegram ID", true);
+
+  const box = qs("#profileData");
+  box.textContent = "Loading profile...";
+  box.classList.remove("hidden");
+
+  const res = await api("/profile", {
+    method: "POST",
+    body: JSON.stringify({ telegram_id: telegramId }),
+  });
+
+  if (!res.ok) {
+    box.textContent = "Failed to load profile";
+    return;
+  }
+
+  box.innerHTML = `
+    <p><strong>Username:</strong> ${res.username || telegramId}</p>
+    <p><strong>Total Links Added:</strong> ${res.total_links || 0}</p>
+    <p><strong>Verified Links:</strong> ${res.verified_links || 0}</p>
+    <p><strong>Total Points:</strong> ${res.points || 0}</p>
+    <p><strong>Role:</strong> ${res.is_moderator ? "Moderator" : "User"}</p>
+    ${
+      !res.is_moderator
+        ? '<button id="migrateModerator" class="btn primary">Request Moderator</button>'
+        : ''
+    }
+  `;
+
+  const migrateBtn = qs("#migrateModerator");
+  if (migrateBtn) {
+    migrateBtn.addEventListener("click", async () => {
+      const resp = await api("/migrateModerator", {
+        method: "POST",
+        body: JSON.stringify({ telegram_id: telegramId }),
+      });
+      if (resp.ok) {
+        notify("✅ Moderator request submitted");
+        loadProfile(telegramId); // reload profile
+      } else {
+        notify(resp.error || "Failed to request moderator", true);
+      }
+    });
+  }
+}
+
+// ---------------------------
 // Initialize everything
 // ---------------------------
 document.addEventListener("DOMContentLoaded", () => {
@@ -218,10 +265,16 @@ document.addEventListener("DOMContentLoaded", () => {
   qsa(".menu-item").forEach((btn) =>
     btn.addEventListener("click", () => showPage(btn.dataset.target))
   );
+
   qs("#checkBtn").addEventListener("click", handleCheck);
   qs("#addBtn").addEventListener("click", handleAdd);
   qs("#reportBtn").addEventListener("click", handleReport);
   qs("#refreshLeaderboard").addEventListener("click", loadLeaderboard);
+
+  qs("#profileLoad")?.addEventListener("click", () => {
+    const telegramId = qs("#profileInput").value.trim();
+    loadProfile(telegramId);
+  });
 
   showPage("home");
   loadRecentLinks();
