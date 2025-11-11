@@ -48,7 +48,9 @@ function createSessionCookie(res, payload) {
   });
 }
 
+// ---------------------------
 // Auth middleware
+// ---------------------------
 function authMiddleware(req, res, next) {
   try {
     const token = req.cookies?.[SESSION_COOKIE_NAME];
@@ -125,6 +127,21 @@ router.post("/register", async (req, res) => {
   } catch (e) {
     console.error("register error:", e);
     return res.status(500).json({ ok: false, message: "Server error" });
+  }
+});
+
+// ---------------------------
+// Public GET /api/recent
+// ---------------------------
+router.get("/recent", async (req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT id, url, status, created_at FROM links ORDER BY created_at DESC LIMIT 10"
+    );
+    return res.json({ ok: true, rows: r.rows });
+  } catch (e) {
+    console.error("recent error:", e);
+    return res.status(500).json({ ok: false, message: "Failed to load recent links" });
   }
 });
 
@@ -217,11 +234,12 @@ router.get("/leaderboard", async (req, res) => {
 });
 
 // ---------------------------
-// Profile route (expanded)
+// Profile route
+// GET /api/profile/:id
 // ---------------------------
-router.post("/profile", async (req, res) => {
+router.get("/profile/:id", async (req, res) => {
   try {
-    const { telegram_id } = req.body;
+    const telegram_id = req.params.id;
     if (!telegram_id) return res.status(400).json({ ok: false, message: "Missing telegram_id" });
 
     const userRes = await pool.query(
@@ -240,7 +258,6 @@ router.post("/profile", async (req, res) => {
     const total_links = parseInt(linksRes.rows[0].total) || 0;
     const verified_links = parseInt(linksRes.rows[0].verified) || 0;
 
-    // Recent 10 links
     const recentLinksRes = await pool.query(
       "SELECT id, url, status, created_at FROM links WHERE submitted_by=$1 ORDER BY created_at DESC LIMIT 10",
       [telegram_id]
@@ -261,7 +278,7 @@ router.post("/profile", async (req, res) => {
     });
   } catch (e) {
     console.error("profile error:", e);
-    return res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({ ok: false, message: "Failed to load profile" });
   }
 });
 
