@@ -23,7 +23,7 @@ async function initTelegram() {
         telegram_id = data.telegram_id;
         username = data.username;
         qs("#userBadge").textContent = "@" + username;
-        qs("#status").textContent = ""; // clear login status
+        qs("#status").textContent = "";
         return;
       }
     }
@@ -38,7 +38,7 @@ async function initTelegram() {
     telegram_id = user.id;
     username = user.username || `u${telegram_id}`;
     qs("#userBadge").textContent = "@" + username;
-    qs("#status").textContent = ""; // clear login status
+    qs("#status").textContent = "";
 
   } catch (e) {
     console.error("initTelegram error", e);
@@ -209,7 +209,7 @@ function loadTasks() {
 }
 
 // ---------------------------
-// Profile Loader
+// Profile Loader + Upgrade to Moderator
 // ---------------------------
 async function loadProfile(id = telegram_id) {
   if (!id) return notify("Cannot load profile, missing Telegram ID", true);
@@ -237,27 +237,39 @@ async function loadProfile(id = telegram_id) {
     ${
       data.is_moderator
         ? `<p>✅ You are a moderator</p>`
-        : data.moderator_request
-        ? `<p>⏳ Moderator request pending</p>`
-        : `<button id="requestModerator" class="btn primary">Request Moderator</button>`
+        : `<button id="upgradeModerator" class="btn primary">Upgrade to Moderator</button>`
     }
   `;
 
-  const btn = qs("#requestModerator");
+  const btn = qs("#upgradeModerator");
   if (btn) {
     btn.addEventListener("click", async () => {
-      const r = await api("/migrateModerator", {
+      const confirmUpgrade = window.confirm(
+        "Upgrade to Moderator for 1 TON?\n\nBenefits:\n- Verify links\n- Earn extra points\n- Access moderation dashboard"
+      );
+      if (!confirmUpgrade) return;
+
+      const paymentSuccess = await makeTonPayment(1); // Simulate payment
+      if (!paymentSuccess) return notify("Payment failed", true);
+
+      const r = await api("/upgradeModerator", {
         method: "POST",
         body: JSON.stringify({ telegram_id }),
       });
+
       if (r.ok) {
-        notify("Moderator request submitted");
-        loadProfile();
+        notify("✅ You are now a moderator!");
+        loadProfile(); // Reload to update button
       } else {
-        notify(r.message || "Failed to request moderator", true);
+        notify(r.message || "Failed to upgrade", true);
       }
     });
   }
+}
+
+// Placeholder TON payment function
+async function makeTonPayment(amount) {
+  return window.confirm(`Simulate payment of ${amount} TON?`);
 }
 
 // ---------------------------
@@ -289,6 +301,5 @@ document.addEventListener("DOMContentLoaded", () => {
   loadLeaderboard();
   loadTasks();
 
-  // Auto-load profile if user is logged in
   if (telegram_id) loadProfile();
 });
