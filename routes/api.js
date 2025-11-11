@@ -66,8 +66,6 @@ function authMiddleware(req, res, next) {
 // ---------------------------
 // Public routes
 // ---------------------------
-
-// POST /api/authInit
 router.post("/authInit", async (req, res) => {
   try {
     const { initData } = req.body;
@@ -106,7 +104,6 @@ router.post("/authInit", async (req, res) => {
   }
 });
 
-// POST /api/register
 router.post("/register", async (req, res) => {
   try {
     const { telegram_id, username } = req.body;
@@ -130,9 +127,6 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// ---------------------------
-// Public GET /api/recent
-// ---------------------------
 router.get("/recent", async (req, res) => {
   try {
     const r = await pool.query(
@@ -150,7 +144,6 @@ router.get("/recent", async (req, res) => {
 // ---------------------------
 router.use(authMiddleware);
 
-// POST /api/addLink
 router.post("/addLink", async (req, res) => {
   try {
     const { url } = req.body;
@@ -184,7 +177,6 @@ router.post("/addLink", async (req, res) => {
   }
 });
 
-// POST /api/report
 router.post("/report", async (req, res) => {
   try {
     const { url, reason } = req.body;
@@ -222,7 +214,6 @@ router.post("/report", async (req, res) => {
   }
 });
 
-// GET /api/leaderboard
 router.get("/leaderboard", async (req, res) => {
   try {
     const r = await pool.query("SELECT username, telegram_id, points, trust_score FROM users ORDER BY points DESC LIMIT 20");
@@ -235,7 +226,6 @@ router.get("/leaderboard", async (req, res) => {
 
 // ---------------------------
 // Profile route
-// GET /api/profile/:id
 // ---------------------------
 router.get("/profile/:id", async (req, res) => {
   try {
@@ -243,11 +233,10 @@ router.get("/profile/:id", async (req, res) => {
     if (!telegram_id) return res.status(400).json({ ok: false, message: "Missing telegram_id" });
 
     const userRes = await pool.query(
-      "SELECT username, points, trust_score, is_moderator, moderator_request FROM users WHERE telegram_id=$1",
+      "SELECT username, points, trust_score, COALESCE(is_moderator,FALSE) AS is_moderator, COALESCE(moderator_request,FALSE) AS moderator_request FROM users WHERE telegram_id=$1",
       [telegram_id]
     );
     if (userRes.rowCount === 0) return res.json({ ok: false, message: "User not found" });
-
     const user = userRes.rows[0];
 
     const linksRes = await pool.query(
@@ -282,20 +271,25 @@ router.get("/profile/:id", async (req, res) => {
   }
 });
 
-// POST /api/migrateModerator
-router.post("/migrateModerator", async (req, res) => {
+// ---------------------------
+// Upgrade to Moderator
+// ---------------------------
+router.post("/upgradeModerator", async (req, res) => {
   try {
     const { telegram_id } = req.body;
     if (!telegram_id) return res.status(400).json({ ok: false, message: "Missing telegram_id" });
 
-    const userRes = await pool.query("SELECT is_moderator, moderator_request FROM users WHERE telegram_id=$1", [telegram_id]);
+    const userRes = await pool.query(
+      "SELECT is_moderator FROM users WHERE telegram_id=$1",
+      [telegram_id]
+    );
     if (userRes.rowCount === 0) return res.json({ ok: false, message: "User not found" });
     if (userRes.rows[0].is_moderator) return res.json({ ok: false, message: "Already a moderator" });
 
-    await pool.query("UPDATE users SET moderator_request=TRUE WHERE telegram_id=$1", [telegram_id]);
-    return res.json({ ok: true, message: "Moderator request submitted" });
+    await pool.query("UPDATE users SET is_moderator=TRUE, moderator_request=FALSE WHERE telegram_id=$1", [telegram_id]);
+    return res.json({ ok: true, message: "Successfully upgraded to moderator" });
   } catch (e) {
-    console.error("migrateModerator error:", e);
+    console.error("upgradeModerator error:", e);
     return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
