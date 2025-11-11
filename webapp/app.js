@@ -1,4 +1,3 @@
-// webapp/app.js
 const qs = (s, r = document) => r.querySelector(s);
 const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const apiBase = "/api";
@@ -6,54 +5,40 @@ const apiBase = "/api";
 let telegram_id = null;
 let username = null;
 
-// ---------------------------
-// Telegram Mini App Initialization
-// ---------------------------
+// ✅ Telegram initialization + token fallback
 async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
 
-    if (!tg) {
-      console.warn("Not running inside Telegram WebApp");
-      showGuest("Please open this app from Telegram.");
-      return;
-    }
+    // Check token in query param
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get("token");
 
-    tg.expand();
-    tg.ready();
-
-    // Try to get Telegram user info from WebApp
-    let user = tg.initDataUnsafe?.user || null;
-
-    // Fallback: check server session (user already exists from bot)
-    if (!user) {
-      const res = await fetch(apiBase + "/session", { credentials: "include" });
-      const data = await res.json().catch(() => ({}));
-      if (data.ok && data.telegram_id) {
+    if (token) {
+      const res = await fetch("/api/sessionFromToken?token=" + token);
+      const data = await res.json();
+      if (data.ok) {
         telegram_id = data.telegram_id;
-        username = data.username || `u${telegram_id}`;
+        username = data.username;
         qs("#userBadge").textContent = "@" + username;
         return;
       }
+    }
+
+    // Fallback to Telegram WebApp
+    if (!tg || !tg.initDataUnsafe?.user) {
       showGuest("Please open this app from Telegram.");
       return;
     }
 
-    // Use WebApp user info
+    const user = tg.initDataUnsafe.user;
     telegram_id = user.id;
     username = user.username || `u${telegram_id}`;
     qs("#userBadge").textContent = "@" + username;
 
-    // Auto-register user in backend
-    await fetch(apiBase + "/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegram_id, username }),
-    }).catch((e) => console.warn("register failed", e));
-
   } catch (e) {
-    console.error("initTelegram error:", e);
-    showGuest("Please open this app from Telegram.");
+    console.error("initTelegram error", e);
+    showGuest("Please open this from Telegram.");
   }
 }
 
@@ -63,7 +48,7 @@ function showGuest(msg = "Guest mode: open in Telegram") {
 }
 
 // ---------------------------
-// Utility and API functions
+// API utility
 // ---------------------------
 async function api(path, opts = {}) {
   try {
@@ -190,6 +175,7 @@ function loadTasks() {
   list.innerHTML = tasks
     .map(
       (t) => `
+
     <li>
       <div>
         <div class="task-title">${t.title}</div>
@@ -221,8 +207,8 @@ function loadTasks() {
 // ---------------------------
 // Initialize everything
 // ---------------------------
-document.addEventListener("DOMContentLoaded", async () => {
-  await initTelegram();
+document.addEventListener("DOMContentLoaded", () => {
+  initTelegram();
 
   qsa(".menu-item").forEach((btn) =>
     btn.addEventListener("click", () => showPage(btn.dataset.target))
