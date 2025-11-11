@@ -36,7 +36,6 @@ function verifyTelegramInitData(initDataString) {
 // Session JWT cookie
 // ---------------------------
 const SESSION_COOKIE_NAME = "linktory_session";
-
 function createSessionCookie(res, payload) {
   const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "30d" });
   const secure = process.env.NODE_ENV === "production";
@@ -144,6 +143,7 @@ router.get("/recent", async (req, res) => {
 // ---------------------------
 router.use(authMiddleware);
 
+// Add link
 router.post("/addLink", async (req, res) => {
   try {
     const { url } = req.body;
@@ -177,6 +177,7 @@ router.post("/addLink", async (req, res) => {
   }
 });
 
+// Report link
 router.post("/report", async (req, res) => {
   try {
     const { url, reason } = req.body;
@@ -214,6 +215,7 @@ router.post("/report", async (req, res) => {
   }
 });
 
+// Leaderboard
 router.get("/leaderboard", async (req, res) => {
   try {
     const r = await pool.query("SELECT username, telegram_id, points, trust_score FROM users ORDER BY points DESC LIMIT 20");
@@ -224,9 +226,7 @@ router.get("/leaderboard", async (req, res) => {
   }
 });
 
-// ---------------------------
-// Profile route
-// ---------------------------
+// Profile
 router.get("/profile/:id", async (req, res) => {
   try {
     const telegram_id = req.params.id;
@@ -271,9 +271,7 @@ router.get("/profile/:id", async (req, res) => {
   }
 });
 
-// ---------------------------
-// Upgrade to Moderator
-// ---------------------------
+// Upgrade to moderator
 router.post("/upgradeModerator", async (req, res) => {
   try {
     const { telegram_id } = req.body;
