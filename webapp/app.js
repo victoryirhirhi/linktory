@@ -1,3 +1,5 @@
+import { TonConnectSDK } from "https://unpkg.com/@tonconnect/sdk@latest/dist/tonconnect-sdk.min.js";
+
 const qs = (s, r = document) => r.querySelector(s);
 const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const apiBase = "/api";
@@ -6,13 +8,46 @@ let telegram_id = null;
 let username = null;
 
 // ---------------------------
+// TON Connect setup
+// ---------------------------
+const connector = new TonConnectSDK.TonConnect({
+  manifestUrl: window.location.origin + '/tonconnect-manifest.json'
+});
+
+// Address to receive moderator upgrade payment
+const UPGRADE_ADDRESS = "EQYOURTONADDRESSHERE"; // <-- replace with your actual address
+
+async function sendModeratorPayment() {
+  if (!connector.connected) {
+    await connector.connect();
+  }
+
+  const amount = '1000000000'; // 1 TON in nanocoins
+  const transaction = {
+    validUntil: Math.floor(Date.now() / 1000) + 300, // 5 min
+    messages: [
+      {
+        address: UPGRADE_ADDRESS,
+        amount: amount
+      }
+    ]
+  };
+
+  try {
+    await connector.sendTransaction(transaction);
+    return true;
+  } catch (e) {
+    console.error("TON payment error:", e);
+    return false;
+  }
+}
+
+// ---------------------------
 // Telegram initialization + token fallback
 // ---------------------------
 async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
-
-    // Check token in query param
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get("token");
 
@@ -28,7 +63,6 @@ async function initTelegram() {
       }
     }
 
-    // Fallback to Telegram WebApp
     if (!tg || !tg.initDataUnsafe?.user) {
       showGuest("Please open this app from Telegram.");
       return;
@@ -39,7 +73,6 @@ async function initTelegram() {
     username = user.username || `u${telegram_id}`;
     qs("#userBadge").textContent = "@" + username;
     qs("#status").textContent = "";
-
   } catch (e) {
     console.error("initTelegram error", e);
     showGuest("Please open this from Telegram.");
@@ -209,7 +242,7 @@ function loadTasks() {
 }
 
 // ---------------------------
-// Profile Loader + Upgrade to Moderator
+// Profile Loader
 // ---------------------------
 async function loadProfile(id = telegram_id) {
   if (!id) return notify("Cannot load profile, missing Telegram ID", true);
@@ -237,39 +270,38 @@ async function loadProfile(id = telegram_id) {
     ${
       data.is_moderator
         ? `<p>✅ You are a moderator</p>`
-        : `<button id="upgradeModerator" class="btn primary">Upgrade to Moderator</button>`
+        : data.moderator_request
+        ? `<p>⏳ Moderator request pending</p>`
+        : `<button id="requestModerator" class="btn primary">Upgrade to Moderator (1 TON)</button>`
     }
   `;
 
-  const btn = qs("#upgradeModerator");
+  const btn = qs("#requestModerator");
   if (btn) {
     btn.addEventListener("click", async () => {
-      const confirmUpgrade = window.confirm(
-        "Upgrade to Moderator for 1 TON?\n\nBenefits:\n- Verify links\n- Earn extra points\n- Access moderation dashboard"
+      const confirmed = window.confirm(
+        "Pay 1 TON to upgrade to Moderator?"
       );
-      if (!confirmUpgrade) return;
+      if (!confirmed) return;
 
-      const paymentSuccess = await makeTonPayment(1); // Simulate payment
-      if (!paymentSuccess) return notify("Payment failed", true);
+      const paid = await sendModeratorPayment();
+      if (!paid) {
+        notify("Payment failed or canceled", true);
+        return;
+      }
 
       const r = await api("/upgradeModerator", {
         method: "POST",
-        body: JSON.stringify({ telegram_id }),
+        body: JSON.stringify({ telegram_id })
       });
-
       if (r.ok) {
         notify("✅ You are now a moderator!");
-        loadProfile(); // Reload to update button
+        loadProfile();
       } else {
-        notify(r.message || "Failed to upgrade", true);
+        notify(r.message || "Upgrade failed", true);
       }
     });
   }
-}
-
-// Placeholder TON payment function
-async function makeTonPayment(amount) {
-  return window.confirm(`Simulate payment of ${amount} TON?`);
 }
 
 // ---------------------------
@@ -290,7 +322,6 @@ document.addEventListener("DOMContentLoaded", () => {
   qs("#reportBtn").addEventListener("click", handleReport);
   qs("#refreshLeaderboard").addEventListener("click", loadLeaderboard);
 
-  // Load profile by manual input
   qs("#profileLoad").addEventListener("click", () => {
     const id = qs("#profileInput").value.trim();
     loadProfile(id);
