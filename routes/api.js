@@ -48,6 +48,7 @@ function createSessionCookie(res, payload) {
   });
 }
 
+// Auth middleware
 function authMiddleware(req, res, next) {
   try {
     const token = req.cookies?.[SESSION_COOKIE_NAME];
@@ -63,11 +64,12 @@ function authMiddleware(req, res, next) {
 // ---------------------------
 // Public routes
 // ---------------------------
+
+// POST /api/authInit
 router.post("/authInit", async (req, res) => {
   try {
     const { initData } = req.body;
     if (!initData) return res.status(400).json({ ok: false, message: "Missing initData" });
-
     if (!verifyTelegramInitData(initData)) return res.status(401).json({ ok: false, message: "Invalid initData" });
 
     const params = new URLSearchParams(initData);
@@ -85,7 +87,6 @@ router.post("/authInit", async (req, res) => {
 
     if (!telegram_id) telegram_id = params.get("id");
     if (!username) username = params.get("username");
-
     if (!telegram_id) return res.status(400).json({ ok: false, message: "No user id found in initData" });
 
     await pool.query(
@@ -127,7 +128,9 @@ router.post("/register", async (req, res) => {
   }
 });
 
+// ---------------------------
 // Protected routes
+// ---------------------------
 router.use(authMiddleware);
 
 // POST /api/addLink
@@ -149,7 +152,6 @@ router.post("/addLink", async (req, res) => {
     if (exists.rowCount > 0) return res.json({ ok: true, added: false, message: "Already exists", link: exists.rows[0] });
 
     const shortCode = randomUUID().replace(/-/g, "").slice(0, 6);
-
     const insert = await pool.query(
       `INSERT INTO links (url, status, short_code, submitted_by, created_at)
        VALUES ($1, 'pending', $2, $3, now())
