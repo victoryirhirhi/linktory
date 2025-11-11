@@ -9,4 +9,11 @@
     "pg": "^8.16.3",
     "telegraf": "^4.16.3"
   }
+  
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  }
+
 }
+
