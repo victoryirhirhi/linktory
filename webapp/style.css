@@ -71,8 +71,19 @@ input[type="url"], input[type="text"]{width:100%;padding:12px;border-radius:10px
   font-weight: 600;
   font-size: 15px;
   color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
+/* Lock icon for moderator tasks */
+.task-title.moderator::before {
+  content: '🔒';
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+/* Meta text */
 .task-meta {
   font-size: 13px;
   color: #777;
@@ -111,11 +122,12 @@ input[type="url"], input[type="text"]{width:100%;padding:12px;border-radius:10px
   opacity: 0.8;
 }
 
-/* Highlight moderator tasks */
-#taskList li .task-title:has(+ .task-meta)::after {
-  content: '';
-}
-
-#taskList li .task-title:contains('(Moderator Task)') {
-  color: #555;
+/* Separate sections visually */
+.section-header {
+  font-size: 16px;
+  font-weight: bold;
+  margin: 20px 0 10px;
+  color: #222;
+  border-left: 4px solid #007bff;
+  padding-left: 8px;
 }
