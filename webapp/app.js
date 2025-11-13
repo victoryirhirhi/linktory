@@ -11,17 +11,28 @@ let username = null;
 // TON Connect setup
 // ---------------------------
 const connector = new TonConnectSDK.TonConnect({
-  manifestUrl: window.location.origin + '/tonconnect-manifest.json'
+  manifestUrl: window.location.origin + "/tonconnect-manifest.json",
 });
-const UPGRADE_ADDRESS = "EQYOURTONADDRESSHERE"; // <-- replace with your wallet address
+
+// Replace this with your actual TON wallet address
+const UPGRADE_ADDRESS = "EQYOURTONADDRESSHERE";
 
 async function sendModeratorPayment() {
-  if (!connector.connected) await connector.connect();
-  const amount = '1000000000'; // 1 TON in nanocoins
+  if (!connector.connected) {
+    await connector.connect();
+  }
+
+  const amount = "1000000000"; // 1 TON = 1e9 nanocoins
   const transaction = {
-    validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
-    messages: [{ address: UPGRADE_ADDRESS, amount }]
+    validUntil: Math.floor(Date.now() / 1000) + 300,
+    messages: [
+      {
+        address: UPGRADE_ADDRESS,
+        amount: amount,
+      },
+    ],
   };
+
   try {
     await connector.sendTransaction(transaction);
     return true;
@@ -32,7 +43,7 @@ async function sendModeratorPayment() {
 }
 
 // ---------------------------
-// Telegram initialization
+// Telegram Initialization
 // ---------------------------
 async function initTelegram() {
   try {
@@ -75,7 +86,7 @@ function showGuest(msg = "Guest mode: open in Telegram") {
 }
 
 // ---------------------------
-// API utility
+// API Utility
 // ---------------------------
 async function api(path, opts = {}) {
   try {
@@ -117,7 +128,6 @@ async function handleCheck() {
     method: "POST",
     body: JSON.stringify({ url }),
   });
-
   if (!res.ok) return notify(res.message || res.error || "Failed", true);
   const status = res.exists ? "✅ Link found" : "❌ No record, add it";
   notify(status);
@@ -159,7 +169,7 @@ async function handleReport() {
 }
 
 // ---------------------------
-// Loaders
+// Data Loaders
 // ---------------------------
 async function loadRecentLinks() {
   const box = qs("#recentList");
@@ -168,9 +178,11 @@ async function loadRecentLinks() {
   if (!res.ok) return (box.textContent = "Failed to load");
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No links yet");
-
   box.innerHTML = res.rows
-    .map((r) => `<li>${r.status === "verified" ? "✅" : "❌"} <a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`)
+    .map(
+      (r) =>
+        `<li>${r.status === "verified" ? "✅" : "❌"} <a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`
+    )
     .join("");
 }
 
@@ -181,7 +193,6 @@ async function loadLeaderboard() {
   if (!res.ok) return (box.textContent = "Failed");
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No contributors yet");
-
   box.innerHTML = res.rows
     .map((r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`)
     .join("");
@@ -206,7 +217,9 @@ function loadTasks() {
           <div class="task-meta">${t.points} pts</div>
         </div>
         <div>
-          <button data-task="${t.id}" class="btn ${saved[t.id] ? "neutral" : "primary"}">
+          <button data-task="${t.id}" class="btn ${
+        saved[t.id] ? "neutral" : "primary"
+      }">
             ${saved[t.id] ? "Claimed" : "Claim"}
           </button>
         </div>
@@ -235,10 +248,10 @@ async function loadProfile(id = telegram_id) {
 
   const res = await api(`/profile/${id}`);
   if (!res.ok) return notify(res.message || "Failed to load profile", true);
-
   const data = res.user;
   const box = qs("#profileData");
   box.classList.remove("hidden");
+
   box.innerHTML = `
     <p><strong>Username:</strong> @${data.username || "—"}</p>
     <p><strong>Points:</strong> ${data.points}</p>
@@ -248,40 +261,49 @@ async function loadProfile(id = telegram_id) {
     <ul>
       ${data.recent_links
         .map(
-          (l) => `<li>${l.status === "verified" ? "✅" : "❌"} <a href="${l.url}" target="_blank" rel="noreferrer">${l.url}</a></li>`
+          (l) =>
+            `<li>${l.status === "verified" ? "✅" : "❌"} <a href="${l.url}" target="_blank" rel="noreferrer">${l.url}</a></li>`
         )
         .join("")}
     </ul>
     ${
       data.is_moderator
-        ? `<p>✅ You are a moderator</p>`
+        ? "<p>✅ You are a moderator</p>"
         : data.moderator_request
-        ? `<p>⏳ Moderator request pending</p>`
-        : `<button id="requestModerator" class="btn primary">Upgrade to Moderator (1 TON)</button>`
+        ? "<p>⏳ Moderator request pending</p>"
+        : '<button id="requestModerator" class="btn primary">Upgrade to Moderator (1 TON)</button>'
     }
   `;
 
   const btn = qs("#requestModerator");
   if (btn) {
     btn.addEventListener("click", async () => {
-      if (!window.confirm("Pay 1 TON to upgrade to Moderator?")) return;
+      const confirmed = window.confirm("Pay 1 TON to upgrade to Moderator?");
+      if (!confirmed) return;
+
       const paid = await sendModeratorPayment();
-      if (!paid) return notify("Payment failed or canceled", true);
+      if (!paid) {
+        notify("Payment failed or canceled", true);
+        return;
+      }
 
       const r = await api("/upgradeModerator", {
         method: "POST",
         body: JSON.stringify({ telegram_id }),
       });
+
       if (r.ok) {
         notify("✅ You are now a moderator!");
         loadProfile();
-      } else notify(r.message || "Upgrade failed", true);
+      } else {
+        notify(r.message || "Upgrade failed", true);
+      }
     });
   }
 }
 
 // ---------------------------
-// Initialize
+// Initialize everything
 // ---------------------------
 document.addEventListener("DOMContentLoaded", () => {
   initTelegram();
@@ -306,6 +328,5 @@ document.addEventListener("DOMContentLoaded", () => {
   loadRecentLinks();
   loadLeaderboard();
   loadTasks();
-
   if (telegram_id) loadProfile();
 });
