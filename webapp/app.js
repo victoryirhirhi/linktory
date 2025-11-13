@@ -169,35 +169,63 @@ async function loadLeaderboard() {
     .join("");
 }
 
-function loadTasks() {
+async function loadTasks() {
   const list = qs("#taskList");
   if (!list) return;
   const saved = JSON.parse(localStorage.getItem("tasks") || "{}");
+
+  // Load user profile to check if moderator
+  let user = null;
+  if (telegram_id) {
+    const res = await api(`/profile/${telegram_id}`);
+    if (res.ok && res.user) user = res.user;
+  }
+
+  const isModerator = user?.is_moderator || false;
+
   const tasks = [
-    { id: "t_add_1", title: "Add 1 link", points: 5 },
-    { id: "t_report_1", title: "Report 1 link", points: 5 },
-    { id: "t_invite_1", title: "Invite 1 friend", points: 10 },
+    { id: "t_add_1", title: "Add 1 link", points: 5, modOnly: false },
+    { id: "t_report_1", title: "Report 1 link", points: 5, modOnly: false },
+    { id: "t_invite_1", title: "Invite 1 friend", points: 10, modOnly: false },
+    { id: "t_verify_1", title: "Verify 1 link", points: 15, modOnly: true },
+    { id: "t_review_1", title: "Review pending reports", points: 20, modOnly: true },
   ];
+
   list.innerHTML = tasks
-    .map(
-      (t) => `
-    <li>
-      <div>
-        <div class="task-title">${t.title}</div>
-        <div class="task-meta">${t.points} pts</div>
-      </div>
-      <div>
-        <button data-task="${t.id}" class="btn ${saved[t.id] ? "neutral" : "primary"}">
-          ${saved[t.id] ? "Claimed" : "Claim"}
-        </button>
-      </div>
-    </li>`
-    )
+    .map((t) => {
+      const claimed = saved[t.id];
+      const disabled = t.modOnly && !isModerator;
+      const buttonClass = claimed ? "neutral" : disabled ? "disabled" : "primary";
+      const buttonText = claimed
+        ? "Claimed"
+        : disabled
+        ? "Moderator Only"
+        : "Claim";
+      const note = t.modOnly ? " (Moderator Task)" : "";
+
+      return `
+        <li>
+          <div>
+            <div class="task-title">${t.title}${note}</div>
+            <div class="task-meta">${t.points} pts</div>
+          </div>
+          <div>
+            <button data-task="${t.id}" class="btn ${buttonClass}" ${disabled ? "disabled" : ""}>
+              ${buttonText}
+            </button>
+          </div>
+        </li>`;
+    })
     .join("");
 
   list.querySelectorAll("button[data-task]").forEach((b) => {
     b.addEventListener("click", () => {
       const id = b.dataset.task;
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      if (task.modOnly && !isModerator)
+        return notify("Only moderators can access these tasks", true);
+
       const s = JSON.parse(localStorage.getItem("tasks") || "{}");
       if (s[id]) return notify("Already claimed");
       s[id] = { claimed_at: Date.now() };
@@ -303,3 +331,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (telegram_id) loadProfile();
 });
+
