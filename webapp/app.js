@@ -1,5 +1,3 @@
-import { TonConnectSDK } from "https://unpkg.com/@tonconnect/sdk@latest/dist/tonconnect-sdk.min.js";
-
 const qs = (s, r = document) => r.querySelector(s);
 const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const apiBase = "/api";
@@ -8,46 +6,13 @@ let telegram_id = null;
 let username = null;
 
 // ---------------------------
-// TON Connect setup
-// ---------------------------
-const connector = new TonConnectSDK.TonConnect({
-  manifestUrl: window.location.origin + "/tonconnect-manifest.json",
-});
-
-// Replace this with your actual TON wallet address
-const UPGRADE_ADDRESS = "EQYOURTONADDRESSHERE";
-
-async function sendModeratorPayment() {
-  if (!connector.connected) {
-    await connector.connect();
-  }
-
-  const amount = "1000000000"; // 1 TON = 1e9 nanocoins
-  const transaction = {
-    validUntil: Math.floor(Date.now() / 1000) + 300,
-    messages: [
-      {
-        address: UPGRADE_ADDRESS,
-        amount: amount,
-      },
-    ],
-  };
-
-  try {
-    await connector.sendTransaction(transaction);
-    return true;
-  } catch (e) {
-    console.error("TON payment error:", e);
-    return false;
-  }
-}
-
-// ---------------------------
-// Telegram Initialization
+// Telegram initialization + token fallback
 // ---------------------------
 async function initTelegram() {
   try {
     const tg = window.Telegram?.WebApp;
+
+    // Check token in query param
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get("token");
 
@@ -63,6 +28,7 @@ async function initTelegram() {
       }
     }
 
+    // Fallback to Telegram WebApp
     if (!tg || !tg.initDataUnsafe?.user) {
       showGuest("Please open this app from Telegram.");
       return;
@@ -73,6 +39,7 @@ async function initTelegram() {
     username = user.username || `u${telegram_id}`;
     qs("#userBadge").textContent = "@" + username;
     qs("#status").textContent = "";
+
   } catch (e) {
     console.error("initTelegram error", e);
     showGuest("Please open this from Telegram.");
@@ -86,7 +53,7 @@ function showGuest(msg = "Guest mode: open in Telegram") {
 }
 
 // ---------------------------
-// API Utility
+// API utility
 // ---------------------------
 async function api(path, opts = {}) {
   try {
@@ -128,6 +95,7 @@ async function handleCheck() {
     method: "POST",
     body: JSON.stringify({ url }),
   });
+
   if (!res.ok) return notify(res.message || res.error || "Failed", true);
   const status = res.exists ? "✅ Link found" : "❌ No record, add it";
   notify(status);
@@ -178,11 +146,12 @@ async function loadRecentLinks() {
   if (!res.ok) return (box.textContent = "Failed to load");
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No links yet");
+
   box.innerHTML = res.rows
-    .map(
-      (r) =>
-        `<li>${r.status === "verified" ? "✅" : "❌"} <a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`
-    )
+    .map(r => {
+      const status = r.status === "verified" ? "✅" : "❌";
+      return `<li>${status} <a href="${r.url}" target="_blank" rel="noreferrer">${r.url}</a></li>`;
+    })
     .join("");
 }
 
@@ -194,7 +163,9 @@ async function loadLeaderboard() {
   if (!Array.isArray(res.rows) || res.rows.length === 0)
     return (box.textContent = "No contributors yet");
   box.innerHTML = res.rows
-    .map((r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`)
+    .map(
+      (r) => `<li>${r.username || r.telegram_id} — ${r.points} pts</li>`
+    )
     .join("");
 }
 
@@ -207,23 +178,20 @@ function loadTasks() {
     { id: "t_report_1", title: "Report 1 link", points: 5 },
     { id: "t_invite_1", title: "Invite 1 friend", points: 10 },
   ];
-
   list.innerHTML = tasks
     .map(
       (t) => `
-      <li>
-        <div>
-          <div class="task-title">${t.title}</div>
-          <div class="task-meta">${t.points} pts</div>
-        </div>
-        <div>
-          <button data-task="${t.id}" class="btn ${
-        saved[t.id] ? "neutral" : "primary"
-      }">
-            ${saved[t.id] ? "Claimed" : "Claim"}
-          </button>
-        </div>
-      </li>`
+    <li>
+      <div>
+        <div class="task-title">${t.title}</div>
+        <div class="task-meta">${t.points} pts</div>
+      </div>
+      <div>
+        <button data-task="${t.id}" class="btn ${saved[t.id] ? "neutral" : "primary"}">
+          ${saved[t.id] ? "Claimed" : "Claim"}
+        </button>
+      </div>
+    </li>`
     )
     .join("");
 
@@ -241,17 +209,17 @@ function loadTasks() {
 }
 
 // ---------------------------
-// Profile Loader
+// Profile Loader + Upgrade to Moderator
 // ---------------------------
 async function loadProfile(id = telegram_id) {
   if (!id) return notify("Cannot load profile, missing Telegram ID", true);
 
   const res = await api(`/profile/${id}`);
   if (!res.ok) return notify(res.message || "Failed to load profile", true);
+
   const data = res.user;
   const box = qs("#profileData");
   box.classList.remove("hidden");
-
   box.innerHTML = `
     <p><strong>Username:</strong> @${data.username || "—"}</p>
     <p><strong>Points:</strong> ${data.points}</p>
@@ -268,24 +236,21 @@ async function loadProfile(id = telegram_id) {
     </ul>
     ${
       data.is_moderator
-        ? "<p>✅ You are a moderator</p>"
-        : data.moderator_request
-        ? "<p>⏳ Moderator request pending</p>"
-        : '<button id="requestModerator" class="btn primary">Upgrade to Moderator (1 TON)</button>'
+        ? `<p>✅ You are a moderator</p>`
+        : `<button id="upgradeModerator" class="btn primary">Upgrade to Moderator</button>`
     }
   `;
 
-  const btn = qs("#requestModerator");
+  const btn = qs("#upgradeModerator");
   if (btn) {
     btn.addEventListener("click", async () => {
-      const confirmed = window.confirm("Pay 1 TON to upgrade to Moderator?");
-      if (!confirmed) return;
+      const confirmUpgrade = window.confirm(
+        "Upgrade to Moderator for 1 TON?\n\nBenefits:\n- Verify links\n- Earn extra points\n- Access moderation dashboard"
+      );
+      if (!confirmUpgrade) return;
 
-      const paid = await sendModeratorPayment();
-      if (!paid) {
-        notify("Payment failed or canceled", true);
-        return;
-      }
+      const paymentSuccess = await makeTonPayment(1); // Simulate payment
+      if (!paymentSuccess) return notify("Payment failed", true);
 
       const r = await api("/upgradeModerator", {
         method: "POST",
@@ -294,12 +259,17 @@ async function loadProfile(id = telegram_id) {
 
       if (r.ok) {
         notify("✅ You are now a moderator!");
-        loadProfile();
+        loadProfile(); // Reload to update button
       } else {
-        notify(r.message || "Upgrade failed", true);
+        notify(r.message || "Failed to upgrade", true);
       }
     });
   }
+}
+
+// Placeholder TON payment function
+async function makeTonPayment(amount) {
+  return window.confirm(`Simulate payment of ${amount} TON?`);
 }
 
 // ---------------------------
@@ -319,6 +289,8 @@ document.addEventListener("DOMContentLoaded", () => {
   qs("#addBtn").addEventListener("click", handleAdd);
   qs("#reportBtn").addEventListener("click", handleReport);
   qs("#refreshLeaderboard").addEventListener("click", loadLeaderboard);
+
+  // Load profile by manual input
   qs("#profileLoad").addEventListener("click", () => {
     const id = qs("#profileInput").value.trim();
     loadProfile(id);
@@ -328,5 +300,6 @@ document.addEventListener("DOMContentLoaded", () => {
   loadRecentLinks();
   loadLeaderboard();
   loadTasks();
+
   if (telegram_id) loadProfile();
 });
